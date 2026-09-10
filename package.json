@@ -1,0 +1,53 @@
+{
+  "name": "@nihilium-recovery/onchain-evm",
+  "version": "0.0.0",
+  "description": "ERC-7579 recovery module and graduated-veto state machine, with the generated ABI surface the SDK consumes.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "README.md",
+    "bindings",
+    "deployments",
+    "dist",
+    "foundry.toml",
+    "remappings.txt",
+    "script",
+    "src"
+  ],
+  "scripts": {
+    "build": "forge build && npm run build:abi && tsc -b",
+    "build:sol": "forge build",
+    "test": "forge test -vv",
+    "test:gas": "forge test --gas-report",
+    "fmt": "forge fmt",
+    "clean": "forge clean && tsc -b --clean",
+    "build:abi": "node bindings/generate-abi.mjs",
+    "deploy:sepolia:dry": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url sepolia -vvv",
+    "deploy:sepolia": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url sepolia --broadcast -vvv",
+    "deploy:sepolia:verify": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url sepolia --broadcast --verify -vvv",
+    "deploy:arbitrum-sepolia:dry": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum_sepolia -vvv",
+    "deploy:arbitrum-sepolia": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum_sepolia --broadcast -vvv",
+    "deploy:arbitrum-sepolia:verify": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum_sepolia --broadcast --verify -vvv",
+    "deploy:arbitrum:dry": "ALLOW_ANY_CHAIN=true forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum -vvv",
+    "deploy:arbitrum": "ALLOW_ANY_CHAIN=true forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum --broadcast -vvv",
+    "deploy:arbitrum:verify": "ALLOW_ANY_CHAIN=true forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url arbitrum --broadcast --verify -vvv",
+    "deploy:anvil": "forge script script/DeployRecoveryModule.s.sol:DeployRecoveryModule --rpc-url anvil --broadcast -vvv",
+    "verify:sepolia": "set -a && . ./.env && set +a && forge verify-contract \"$RECOVERY_MODULE_ADDRESS\" src/RecoveryModule.sol:RecoveryModule --watch --chain sepolia",
+    "verify:arbitrum": "set -a && . ./.env && set +a && forge verify-contract \"$RECOVERY_MODULE_ADDRESS\" src/RecoveryModule.sol:RecoveryModule --watch --chain arbitrum",
+    "verify:arbitrum-sepolia": "set -a && . ./.env && set +a && forge verify-contract \"$RECOVERY_MODULE_ADDRESS\" src/RecoveryModule.sol:RecoveryModule --watch --chain arbitrum-sepolia"
+  },
+  "dependencies": {
+    "@rhinestone/modulekit": "0.5.9"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

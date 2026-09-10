@@ -1,0 +1,8 @@
+{
+  "chainId": 11155111,
+  "deployedAtBlock": 11668778,
+  "initCodeHash": "0x5104f032fa86754ae6f6cc325c23edf023d940f3e7fefbcae212625549e84e7a",
+  "recoveryModule": "0x55c469aBe9D19db9f88ef023af759FF540B3bCD8",
+  "salt": "0x83c5b11bd784db4d07f56998e683bfd4e8ea2eb83ff56e9f30af20e2fa90dd5b",
+  "version": "2.0.0"
+}
