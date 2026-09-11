@@ -1,5 +1,5 @@
 /**
- * The entire surface `@nihilium-recovery/settlement-evm` is allowed to import from this package:
+ * The entire surface `@nihilium/recovery-settlement-evm` is allowed to import from this package:
  * generated ABIs, an address book, and the enum ordinals the contracts use.
  *
  * Nothing here reaches into Solidity source, and nothing in Solidity reaches into TypeScript. That

@@ -1,6 +1,6 @@
 {
-  "name": "@nihilium-recovery/onchain-evm",
-  "version": "0.0.0",
+  "name": "@nihilium/recovery-onchain-evm",
+  "version": "0.7.2",
   "description": "ERC-7579 recovery module and graduated-veto state machine, with the generated ABI surface the SDK consumes.",
   "license": "MIT",
   "type": "module",
