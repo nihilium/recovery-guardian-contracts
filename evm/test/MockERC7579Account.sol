@@ -7,9 +7,12 @@ import { ExecutionLib } from "modulekit/accounts/erc7579/lib/ExecutionLib.sol";
 /**
  * @dev A recording ERC-7579 account, only as capable as these tests need.
  *
- * Its job is to answer one question precisely: *what exactly can the recovery module make an account
- * do?* Every execution routed through it is recorded, so the confinement claim — "there is no path
- * through this module that moves a token or makes an arbitrary call" — is checked against what the
+ * Its job is to answer one question precisely: *what exactly can the recovery module make an
+ * account
+ * do?* Every execution routed through it is recorded, so the confinement claim — "there is no
+ * path
+ * through this module that moves a token or makes an arbitrary call" — is checked against what
+ * the
  * account was actually asked to do, rather than inferred from reading the module.
  */
 contract MockERC7579Account {

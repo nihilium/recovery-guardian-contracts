@@ -795,3 +795,887 @@ export const gradualVetoAbi = [
         "inputs": []
     }
 ] as const;
+
+/** ABI of `Eip7702RecoveryAccount`, from the Forge build artifact. */
+export const eip7702RecoveryAccountAbi = [
+    {
+        "type": "function",
+        "name": "abort",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "attemptOf",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "attemptSeq",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "veto",
+                "type": "tuple",
+                "internalType": "struct GradualVeto.Attempt",
+                "components": [
+                    {
+                        "name": "state",
+                        "type": "uint8",
+                        "internalType": "enum GradualVeto.State"
+                    },
+                    {
+                        "name": "accruedSeconds",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                    },
+                    {
+                        "name": "pausedSeconds",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                    },
+                    {
+                        "name": "checkpointTime",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "configOf",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "currentOwner",
+                "type": "address",
+                "internalType": "address"
+            },
+            {
+                "name": "recoveryOwner",
+                "type": "address",
+                "internalType": "address"
+            },
+            {
+                "name": "epoch",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "nonce",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "configNonce",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "execNonce",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "veto",
+                "type": "tuple",
+                "internalType": "struct GradualVeto.Config",
+                "components": [
+                    {
+                        "name": "pauseAuthority",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "abortAuthority",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "resumeMembers",
+                        "type": "address[]",
+                        "internalType": "address[]"
+                    },
+                    {
+                        "name": "resumeThreshold",
+                        "type": "uint8",
+                        "internalType": "uint8"
+                    },
+                    {
+                        "name": "timelockSeconds",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                    },
+                    {
+                        "name": "pauseCeilingSeconds",
+                        "type": "uint64",
+                        "internalType": "uint64"
+                    }
+                ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "execute",
+        "inputs": [
+            {
+                "name": "calls",
+                "type": "tuple[]",
+                "internalType": "struct Eip7702RecoveryAccount.Call[]",
+                "components": [
+                    {
+                        "name": "target",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "value",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "data",
+                        "type": "bytes",
+                        "internalType": "bytes"
+                    }
+                ]
+            },
+            {
+                "name": "expiry",
+                "type": "uint48",
+                "internalType": "uint48"
+            },
+            {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "results",
+                "type": "bytes[]",
+                "internalType": "bytes[]"
+            }
+        ],
+        "stateMutability": "payable"
+    },
+    {
+        "type": "function",
+        "name": "executeRecovery",
+        "inputs": [
+            {
+                "name": "intent",
+                "type": "tuple",
+                "internalType": "struct Eip7702RecoveryAccount.Intent",
+                "components": [
+                    {
+                        "name": "epoch",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "nonce",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "newOwner",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "expiry",
+                        "type": "uint48",
+                        "internalType": "uint48"
+                    }
+                ]
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "hashExecute",
+        "inputs": [
+            {
+                "name": "calls",
+                "type": "tuple[]",
+                "internalType": "struct Eip7702RecoveryAccount.Call[]",
+                "components": [
+                    {
+                        "name": "target",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "value",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "data",
+                        "type": "bytes",
+                        "internalType": "bytes"
+                    }
+                ]
+            },
+            {
+                "name": "expiry",
+                "type": "uint48",
+                "internalType": "uint48"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "hashIntent",
+        "inputs": [
+            {
+                "name": "intent",
+                "type": "tuple",
+                "internalType": "struct Eip7702RecoveryAccount.Intent",
+                "components": [
+                    {
+                        "name": "epoch",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "nonce",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "newOwner",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "expiry",
+                        "type": "uint48",
+                        "internalType": "uint48"
+                    }
+                ]
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "hashRegister",
+        "inputs": [
+            {
+                "name": "reg",
+                "type": "tuple",
+                "internalType": "struct Eip7702RecoveryAccount.RegisterMessage",
+                "components": [
+                    {
+                        "name": "recoveryOwner",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "veto",
+                        "type": "tuple",
+                        "internalType": "struct GradualVeto.Config",
+                        "components": [
+                            {
+                                "name": "pauseAuthority",
+                                "type": "address",
+                                "internalType": "address"
+                            },
+                            {
+                                "name": "abortAuthority",
+                                "type": "address",
+                                "internalType": "address"
+                            },
+                            {
+                                "name": "resumeMembers",
+                                "type": "address[]",
+                                "internalType": "address[]"
+                            },
+                            {
+                                "name": "resumeThreshold",
+                                "type": "uint8",
+                                "internalType": "uint8"
+                            },
+                            {
+                                "name": "timelockSeconds",
+                                "type": "uint64",
+                                "internalType": "uint64"
+                            },
+                            {
+                                "name": "pauseCeilingSeconds",
+                                "type": "uint64",
+                                "internalType": "uint64"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "nonce",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    }
+                ]
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "initiateRecovery",
+        "inputs": [
+            {
+                "name": "intent",
+                "type": "tuple",
+                "internalType": "struct Eip7702RecoveryAccount.Intent",
+                "components": [
+                    {
+                        "name": "epoch",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "nonce",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    },
+                    {
+                        "name": "newOwner",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "expiry",
+                        "type": "uint48",
+                        "internalType": "uint48"
+                    }
+                ]
+            },
+            {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "isRegistered",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bool",
+                "internalType": "bool"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "name",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "string",
+                "internalType": "string"
+            }
+        ],
+        "stateMutability": "pure"
+    },
+    {
+        "type": "function",
+        "name": "owner",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "address",
+                "internalType": "address"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "pause",
+        "inputs": [],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "register",
+        "inputs": [
+            {
+                "name": "reg",
+                "type": "tuple",
+                "internalType": "struct Eip7702RecoveryAccount.RegisterMessage",
+                "components": [
+                    {
+                        "name": "recoveryOwner",
+                        "type": "address",
+                        "internalType": "address"
+                    },
+                    {
+                        "name": "veto",
+                        "type": "tuple",
+                        "internalType": "struct GradualVeto.Config",
+                        "components": [
+                            {
+                                "name": "pauseAuthority",
+                                "type": "address",
+                                "internalType": "address"
+                            },
+                            {
+                                "name": "abortAuthority",
+                                "type": "address",
+                                "internalType": "address"
+                            },
+                            {
+                                "name": "resumeMembers",
+                                "type": "address[]",
+                                "internalType": "address[]"
+                            },
+                            {
+                                "name": "resumeThreshold",
+                                "type": "uint8",
+                                "internalType": "uint8"
+                            },
+                            {
+                                "name": "timelockSeconds",
+                                "type": "uint64",
+                                "internalType": "uint64"
+                            },
+                            {
+                                "name": "pauseCeilingSeconds",
+                                "type": "uint64",
+                                "internalType": "uint64"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "nonce",
+                        "type": "uint256",
+                        "internalType": "uint256"
+                    }
+                ]
+            },
+            {
+                "name": "recoveryOwnerSignature",
+                "type": "bytes",
+                "internalType": "bytes"
+            },
+            {
+                "name": "ownerSignature",
+                "type": "bytes",
+                "internalType": "bytes"
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "resume",
+        "inputs": [
+            {
+                "name": "signers",
+                "type": "address[]",
+                "internalType": "address[]"
+            },
+            {
+                "name": "signatures",
+                "type": "bytes[]",
+                "internalType": "bytes[]"
+            }
+        ],
+        "outputs": [],
+        "stateMutability": "nonpayable"
+    },
+    {
+        "type": "function",
+        "name": "resumeDigest",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "stateOf",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "uint8",
+                "internalType": "enum GradualVeto.State"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "version",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "",
+                "type": "string",
+                "internalType": "string"
+            }
+        ],
+        "stateMutability": "pure"
+    },
+    {
+        "type": "event",
+        "name": "Executed",
+        "inputs": [
+            {
+                "name": "execNonce",
+                "type": "uint256",
+                "indexed": true,
+                "internalType": "uint256"
+            },
+            {
+                "name": "callCount",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryAborted",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryConfigUpdated",
+        "inputs": [
+            {
+                "name": "recoveryOwner",
+                "type": "address",
+                "indexed": true,
+                "internalType": "address"
+            },
+            {
+                "name": "epoch",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryExecuted",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            },
+            {
+                "name": "newEpoch",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            },
+            {
+                "name": "newOwner",
+                "type": "address",
+                "indexed": false,
+                "internalType": "address"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryInitiated",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            },
+            {
+                "name": "epoch",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryPaused",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "RecoveryResumed",
+        "inputs": [
+            {
+                "name": "intentHash",
+                "type": "bytes32",
+                "indexed": true,
+                "internalType": "bytes32"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "event",
+        "name": "Registered",
+        "inputs": [
+            {
+                "name": "recoveryOwner",
+                "type": "address",
+                "indexed": true,
+                "internalType": "address"
+            },
+            {
+                "name": "epoch",
+                "type": "uint256",
+                "indexed": false,
+                "internalType": "uint256"
+            }
+        ],
+        "anonymous": false
+    },
+    {
+        "type": "error",
+        "name": "AlreadyTerminal",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "AttemptInFlight",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "BadSignature",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "CallReverted",
+        "inputs": [
+            {
+                "name": "index",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "returndata",
+                "type": "bytes",
+                "internalType": "bytes"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "DuplicateResumeSigner",
+        "inputs": [
+            {
+                "name": "signer",
+                "type": "address",
+                "internalType": "address"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "ExecutionExpired",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "IntentExpired",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "InvalidConfig",
+        "inputs": [
+            {
+                "name": "reason",
+                "type": "string",
+                "internalType": "string"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "NoAttempt",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotAbortAuthority",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotExecutable",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotInitiated",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotPauseAuthority",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotPaused",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotRegistered",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "NotResumeQuorum",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "UnknownIntent",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "WrongConfigNonce",
+        "inputs": [
+            {
+                "name": "expected",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "supplied",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "WrongEpoch",
+        "inputs": [
+            {
+                "name": "expected",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "supplied",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "WrongNonce",
+        "inputs": [
+            {
+                "name": "expected",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "supplied",
+                "type": "uint256",
+                "internalType": "uint256"
+            }
+        ]
+    },
+    {
+        "type": "error",
+        "name": "ZeroOwner",
+        "inputs": []
+    }
+] as const;

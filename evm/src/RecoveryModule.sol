@@ -57,6 +57,12 @@ contract RecoveryModule is ERC7579ExecutorBase {
         /// @dev Bumped on every completed recovery, which invalidates every prior-epoch intent.
         uint256 epoch;
         uint256 nonce;
+        /// @dev Bumped on every `initiateRecovery`, folded into `resumeDigest`. Lives here rather
+        ///      than in `Attempt` for the same reason `epoch`/`nonce` do: `onUninstall` deletes
+        ///      `_attempts[account]` but deliberately leaves this struct's other replay-protection
+        ///      fields alone, so a resume signature banked before an uninstall cannot be replayed
+        ///      onto an attempt opened after a reinstall.
+        uint256 attemptSeq;
         GradualVeto.Config veto;
     }
 
@@ -71,6 +77,8 @@ contract RecoveryModule is ERC7579ExecutorBase {
     bytes32 private constant INTENT_TYPEHASH = keccak256(
         "Intent(address account,uint256 epoch,uint256 nonce,address newValidator,bytes newValidatorInitData,uint48 expiry)"
     );
+    bytes32 private constant RESUME_TYPEHASH =
+        keccak256("Resume(address account,bytes32 intentHash,uint256 attemptSeq)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256(
         "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
     );
@@ -151,7 +159,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
     }
 
     function version() external pure returns (string memory) {
-        return "2.0.0";
+        return "3.0.0";
     }
 
     // ---------------------------------------------------------------------------------------
@@ -189,6 +197,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
         }
 
         attempt.intentHash = intentHash;
+        config.attemptSeq += 1;
         GradualVeto.start(attempt.veto);
         emit RecoveryInitiated(intent.account, intentHash, config.epoch);
     }
@@ -337,18 +346,17 @@ contract RecoveryModule is ERC7579ExecutorBase {
         return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
     }
 
-    /// @notice What a resume-quorum member signs. Bound to the attempt, so an endorsement of one
-    ///         recovery cannot be replayed onto a later one.
+    /// @notice What a resume-quorum member signs. Bound to the attempt via `attemptSeq`, which is
+    ///         bumped on every `initiateRecovery` — so an endorsement of one attempt cannot be
+    ///         replayed onto a later attempt that happens to reuse the same intent fields (and
+    ///         hence the same `intentHash`) after an abort and reinitiate.
     function resumeDigest(address account, bytes32 intentHash) public view returns (bytes32) {
+        uint256 attemptSeq = _configs[account].attemptSeq;
         return keccak256(
             abi.encodePacked(
                 "\x19\x01",
                 _domainSeparator(),
-                keccak256(
-                    abi.encode(
-                        keccak256("Resume(address account,bytes32 intentHash)"), account, intentHash
-                    )
-                )
+                keccak256(abi.encode(RESUME_TYPEHASH, account, intentHash, attemptSeq))
             )
         );
     }
@@ -358,7 +366,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
             abi.encode(
                 DOMAIN_TYPEHASH,
                 keccak256("NihiliumRecoveryModule"),
-                keccak256("2.0.0"),
+                keccak256("3.0.0"),
                 block.chainid,
                 address(this)
             )

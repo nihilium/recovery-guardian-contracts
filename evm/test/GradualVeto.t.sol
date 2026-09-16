@@ -24,7 +24,7 @@ contract GradualVetoTest is Test {
         g1 = makeAddr("guardian1");
         g2 = makeAddr("guardian2");
         veto = new GradualVetoHarness(_config());
-        vm.warp(1_000);
+        vm.warp(1000);
     }
 
     function _config() internal view returns (GradualVeto.Config memory config) {
@@ -101,7 +101,8 @@ contract GradualVetoTest is Test {
         veto.execute();
     }
 
-    /// @dev The load-bearing claim: an aborted recovery stays aborted no matter how much time passes.
+    /// @dev The load-bearing claim: an aborted recovery stays aborted no matter how much time
+    /// passes.
     function testFuzz_abortedNeverBecomesExecutable(uint32 elapsed) public {
         veto.start();
         veto.abort();
@@ -190,7 +191,7 @@ contract GradualVetoTest is Test {
 
     /// @dev Projection must not depend on how often anyone pokes the contract.
     function testFuzz_projectionIsIndependentOfObservationFrequency(uint16 total) public {
-        vm.assume(total > 0 && total < 5_000);
+        vm.assume(total > 0 && total < 5000);
 
         GradualVetoHarness a = new GradualVetoHarness(_config());
         GradualVetoHarness b = new GradualVetoHarness(_config());
@@ -258,7 +259,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.abortAuthority = pauser;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "pause and abort held by one party")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "pause and abort held by one party"
+            )
         );
         veto.validateConfig(config);
     }
@@ -267,7 +270,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.resumeMembers[0] = pauser;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "pause and resume held by one party")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "pause and resume held by one party"
+            )
         );
         veto.validateConfig(config);
     }
@@ -276,7 +281,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.resumeMembers[1] = aborter;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "resume and abort held by one party")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "resume and abort held by one party"
+            )
         );
         veto.validateConfig(config);
     }
@@ -285,7 +292,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.resumeMembers[1] = g1;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "resumeQuorum contains a duplicate")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "resumeQuorum contains a duplicate"
+            )
         );
         veto.validateConfig(config);
     }
@@ -294,7 +303,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.pauseCeilingSeconds = 0;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "pauseCeilingSeconds is zero")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "pauseCeilingSeconds is zero"
+            )
         );
         veto.validateConfig(config);
     }
@@ -312,7 +323,9 @@ contract GradualVetoTest is Test {
         GradualVeto.Config memory config = _config();
         config.resumeThreshold = 3;
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "resumeThreshold exceeds membership")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "resumeThreshold exceeds membership"
+            )
         );
         veto.validateConfig(config);
     }

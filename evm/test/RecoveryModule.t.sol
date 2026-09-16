@@ -38,7 +38,7 @@ contract RecoveryModuleTest is Test {
         (g2, g2Key) = makeAddrAndKey("guardian2");
         (g3, g3Key) = makeAddrAndKey("guardian3");
 
-        vm.warp(1_000);
+        vm.warp(1000);
         vm.warp(1_700_000_000);
 
         vm.prank(address(account));
@@ -118,15 +118,17 @@ contract RecoveryModuleTest is Test {
         bad.abortAuthority = pauser; // §6.1 violation, refused on-chain and not only client-side.
         vm.prank(address(other));
         vm.expectRevert(
-            abi.encodeWithSelector(GradualVeto.InvalidConfig.selector, "pause and abort held by one party")
+            abi.encodeWithSelector(
+                GradualVeto.InvalidConfig.selector, "pause and abort held by one party"
+            )
         );
         module.onInstall(abi.encode(recoveryOwner, bad));
     }
 
     function test_isModuleTypeIsExecutorOnly() public view {
         assertTrue(module.isModuleType(2), "must be an executor");
-        // Registering as a validator would let the recovery key authorize arbitrary user operations,
-        // which is exactly the confinement this design gives up nothing to keep.
+        // Registering as a validator would let the recovery key authorize arbitrary user
+        // operations, which is exactly the confinement this design gives up nothing to keep.
         assertFalse(module.isModuleType(1), "must not be a validator");
     }
 
@@ -186,7 +188,9 @@ contract RecoveryModuleTest is Test {
         intent.account = address(other);
         // The signature is over the *other* account, which has no config on this module install.
         bytes memory sig = _sign(recoveryKey, module.hashIntent(intent));
-        vm.expectRevert(abi.encodeWithSelector(RecoveryModule.NotInstalled.selector, address(other)));
+        vm.expectRevert(
+            abi.encodeWithSelector(RecoveryModule.NotInstalled.selector, address(other))
+        );
         module.initiateRecovery(intent, sig);
     }
 
@@ -194,7 +198,9 @@ contract RecoveryModuleTest is Test {
         _initiate();
         RecoveryModule.Intent memory second = _intent(0, 0);
         bytes memory sig = _sign(recoveryKey, module.hashIntent(second));
-        vm.expectRevert(abi.encodeWithSelector(RecoveryModule.AttemptInFlight.selector, address(account)));
+        vm.expectRevert(
+            abi.encodeWithSelector(RecoveryModule.AttemptInFlight.selector, address(account))
+        );
         module.initiateRecovery(second, sig);
     }
 
@@ -304,7 +310,14 @@ contract RecoveryModuleTest is Test {
 
     /// @dev A guardian endorsement is bound to the attempt, so it cannot be banked and replayed
     ///      against a later recovery the guardian never saw.
-    function test_resumeSignatureDoesNotReplayOntoALaterAttempt() public {
+    /// @dev The actual colliding case: byte-identical intent fields across an abort + reinitiate
+    ///      reproduce the same intentHash (intentHash does not depend on anything an abort or a
+    ///      fresh initiateRecovery changes), so a guardian's endorsement of the first attempt must
+    ///      still be rejected on the second — it is `attemptSeq`, not intentHash alone, that makes
+    ///      resumeDigest attempt-specific. (A prior version of this test mutated an intent field
+    ///      between attempts, which changes intentHash and sidesteps the collision entirely — that
+    ///      gave false confidence, since resumeDigest already binds intentHash.)
+    function test_resumeSignatureDoesNotReplayOntoALaterAttemptWithIdenticalIntent() public {
         _initiate();
         vm.prank(pauser);
         module.pause(address(account));
@@ -313,14 +326,27 @@ contract RecoveryModuleTest is Test {
         vm.prank(aborter);
         module.abort(address(account));
         RecoveryModule.Intent memory second = _intent(0, 0);
-        // A different intent hash, because the first attempt's hash is bound into the digest.
-        second.newValidatorInitData = hex"beef";
         module.initiateRecovery(second, _sign(recoveryKey, module.hashIntent(second)));
         vm.prank(pauser);
         module.pause(address(account));
 
         vm.expectRevert(RecoveryModule.BadSignature.selector);
         module.resume(address(account), signers, signatures);
+    }
+
+    /// @dev Direct proof of the mechanism: resumeDigest for the *same* intentHash changes across
+    ///      attempts, because it is bound to attemptSeq, not intentHash alone.
+    function test_resumeDigestChangesAcrossAttemptsSharingTheSameIntentHash() public {
+        RecoveryModule.Intent memory intent = _initiate();
+        bytes32 intentHash = module.hashIntent(intent);
+        bytes32 firstDigest = module.resumeDigest(address(account), intentHash);
+
+        vm.prank(aborter);
+        module.abort(address(account));
+        module.initiateRecovery(intent, _sign(recoveryKey, intentHash));
+        bytes32 secondDigest = module.resumeDigest(address(account), intentHash);
+
+        assertTrue(firstDigest != secondDigest, "resumeDigest must differ across attempts");
     }
 
     // -----------------------------------------------------------------------------------
@@ -341,7 +367,10 @@ contract RecoveryModuleTest is Test {
         assertEq(value, 0, "recovery must never move value");
         assertEq(
             data,
-            abi.encodeCall(MockERC7579Account.installModule, (1, intent.newValidator, intent.newValidatorInitData)),
+            abi.encodeCall(
+                MockERC7579Account.installModule,
+                (1, intent.newValidator, intent.newValidatorInitData)
+            ),
             "the only call must be the committed validator install"
         );
         assertEq(account.validatorCount(), 1);
@@ -441,7 +470,7 @@ contract RecoveryModuleTest is Test {
         vm.prank(aborter);
         module.abort(address(account));
 
-        vm.warp(block.timestamp + 1_000 * TIMELOCK);
+        vm.warp(block.timestamp + 1000 * TIMELOCK);
         assertEq(uint8(module.stateOf(address(account))), uint8(GradualVeto.State.ABORTED));
         vm.expectRevert(GradualVeto.NotExecutable.selector);
         module.executeRecovery(intent);

@@ -19,6 +19,7 @@ const out = join(here, "..", "out");
 const CONTRACTS = [
     { file: "RecoveryModule.sol", name: "RecoveryModule", export: "recoveryModuleAbi" },
     { file: "GradualVeto.sol", name: "GradualVeto", export: "gradualVetoAbi" },
+    { file: "Eip7702RecoveryAccount.sol", name: "Eip7702RecoveryAccount", export: "eip7702RecoveryAccountAbi" },
 ];
 
 const parts = CONTRACTS.map(({ file, name, export: exportName }) => {

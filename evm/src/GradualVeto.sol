@@ -6,22 +6,28 @@ pragma solidity ^0.8.25;
  * @notice The graduated-veto state machine (spec §6.3), as a pure library over a storage struct.
  *
  * @dev The invariant this library exists to enforce: **no authority named in `Config` can reach
- *      `EXECUTED`**. Pause, resume and abort only speed, slow or stop the clock. Reaching `EXECUTED`
+ *      `EXECUTED`**. Pause, resume and abort only speed, slow or stop the clock. Reaching
+ * `EXECUTED`
  *      requires a matured timelock and a valid identity-gate proof, and neither is a veto key.
  *      Every function below is written so that property is checkable by reading this file alone.
  *
- *      The chain has no "tick", so time is applied lazily: `project` replays the clock from the last
+ *      The chain has no "tick", so time is applied lazily: `project` replays the clock from the
+ * last
  *      checkpoint to `block.timestamp` and is the exact analogue of the `advance` function in the
  *      TypeScript veto package.
  *
- *      **The clock is wall-clock seconds, not blocks.** A timelock is a human interval — the time a
- *      hijacked recovery has to be noticed and paused — and a block count only approximates that at
+ *      **The clock is wall-clock seconds, not blocks.** A timelock is a human interval — the time
+ * a
+ *      hijacked recovery has to be noticed and paused — and a block count only approximates that
+ * at
  *      a rate that differs per chain, so one config meant roughly a fortnight on Ethereum and a few
- *      days on a 2-second-block L2. On Arbitrum it was worse than imprecise: `block.number` there is
+ *      days on a 2-second-block L2. On Arbitrum it was worse than imprecise: `block.number` there
+ * is
  *      the *L1* height, not the chain's own. `RecoveryModule` already timestamps intent expiry, so
  *      this also removes a second, disagreeing clock from the same contract.
  *
- *      Timestamps are proposer-influenced by a few seconds. Against a timelock measured in days that
+ *      Timestamps are proposer-influenced by a few seconds. Against a timelock measured in days
+ * that
  *      is immaterial, and it buys a parameter that means the same thing on every chain.
  *
  *      That machine is the oracle; this one is checked against it by
@@ -67,9 +73,11 @@ library GradualVeto {
 
     /**
      * @notice The effective attempt at `block.timestamp`, with the clock replayed forward.
-     * @dev Pure and view-safe, so a caller can read the true state without sending a transaction —
+     * @dev Pure and view-safe, so a caller can read the true state without sending a transaction
+     * —
      *      a paused attempt that has passed its ceiling really is INITIATED again, whether or not
-     *      anyone has poked the contract. Anything else would make the auto-resume depend on someone
+     *      anyone has poked the contract. Anything else would make the auto-resume depend on
+     * someone
      *      paying gas to notice it, which is exactly the permanent-lockout failure it prevents.
      */
     function project(Config storage config, Attempt memory attempt)
@@ -77,8 +85,10 @@ library GradualVeto {
         view
         returns (Attempt memory)
     {
-        if (attempt.state == State.NONE || isTerminal(attempt.state) || attempt.state == State.EXECUTABLE)
-        {
+        if (
+            attempt.state == State.NONE || isTerminal(attempt.state)
+                || attempt.state == State.EXECUTABLE
+        ) {
             return attempt;
         }
 
@@ -143,7 +153,8 @@ library GradualVeto {
         attempt.pausedSeconds = 0;
     }
 
-    /// @notice PAUSED -> INITIATED. The accrued timelock is preserved: the clock stopped, it did not reset.
+    /// @notice PAUSED -> INITIATED. The accrued timelock is preserved: the clock stopped, it did
+    /// not reset.
     function resume(Config storage config, Attempt storage attempt) internal {
         settle(config, attempt);
         if (isTerminal(attempt.state)) revert AlreadyTerminal();
@@ -183,12 +194,15 @@ library GradualVeto {
     }
 
     /**
-     * @notice The §6.1 independence invariant, enforced on-chain rather than trusted from the client.
+     * @notice The §6.1 independence invariant, enforced on-chain rather than trusted from the
+     * client.
      * @dev The SDK validates this too, but a config only the client checked is a config an attacker
-     *      can simply not check. "A resume key wieldable by whoever can forge the condition turns the
+     *      can simply not check. "A resume key wieldable by whoever can forge the condition turns
+     * the
      *      pause into theater" — so the chain has to refuse it as well.
      *
-     *      What cannot be checked here: whether the abort key is genuinely bare (§7), and whether the
+     *      What cannot be checked here: whether the abort key is genuinely bare (§7), and whether
+     * the
      *      resume quorum is disjoint from the identity-condition surface. Neither fact exists
      *      on-chain. Those stay client-side in `validateVetoConfig`, and that asymmetry is real
      *      rather than an oversight.
