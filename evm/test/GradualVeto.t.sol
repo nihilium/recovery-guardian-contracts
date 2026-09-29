@@ -176,17 +176,64 @@ contract GradualVetoTest is Test {
         assertEq(uint8(veto.state()), uint8(GradualVeto.State.EXECUTABLE));
     }
 
-    /// @dev A permanent freeze is the pause-holder's abuse mode; this proves it is bounded even
-    ///      against a holder who re-pauses at the first opportunity, forever.
-    function test_repeatedPausingStillMatures() public {
+    /// @dev A permanent freeze is the pause-holder's abuse mode. With a per-pause ceiling, a holder
+    ///      who re-paused the instant each ceiling lapsed accrued nothing, forever. The budget is
+    ///      per attempt, so the re-pause is refused and the attempt matures on schedule.
+    function test_pauseAuthorityCannotFreezeIndefinitely() public {
         veto.start();
-        for (uint256 i = 0; i < TIMELOCK; i++) {
-            if (veto.state() == GradualVeto.State.EXECUTABLE) break;
-            vm.prank(pauser);
-            veto.pause();
-            vm.warp(block.timestamp + CEILING + 1);
-        }
+        veto.pause();
+        vm.warp(block.timestamp + CEILING); // auto-resume lands exactly now
+        vm.expectRevert(GradualVeto.PauseBudgetExhausted.selector);
+        veto.pause();
+
+        vm.warp(block.timestamp + TIMELOCK);
         assertEq(uint8(veto.state()), uint8(GradualVeto.State.EXECUTABLE));
+    }
+
+    function test_pauseBudgetIsCumulativeAcrossPauses() public {
+        veto.start();
+        veto.pause();
+        vm.warp(block.timestamp + 30);
+        veto.resume();
+        assertEq(veto.raw().pausedSeconds, 30, "resume refilled the budget");
+
+        // Only CEILING - 30 seconds remain for the second pause.
+        veto.pause();
+        vm.warp(block.timestamp + CEILING - 30 - 1);
+        assertEq(uint8(veto.state()), uint8(GradualVeto.State.PAUSED));
+        vm.warp(block.timestamp + 1);
+        assertEq(uint8(veto.state()), uint8(GradualVeto.State.INITIATED));
+        assertEq(veto.projected().pausedSeconds, CEILING, "auto-resume refilled the budget");
+    }
+
+    function test_pauseRevertsWhenBudgetExhausted() public {
+        veto.start();
+        veto.pause();
+        vm.warp(block.timestamp + CEILING - 10);
+        veto.resume();
+        veto.pause();
+        vm.warp(block.timestamp + 10);
+        vm.expectRevert(GradualVeto.PauseBudgetExhausted.selector);
+        veto.pause();
+    }
+
+    /// @dev Whatever the pause pattern, the attempt matures within timelock + budget seconds.
+    function testFuzz_totalFreezeIsBoundedByTheBudget(uint256 seed) public {
+        veto.start();
+        uint256 elapsed;
+        while (veto.state() != GradualVeto.State.EXECUTABLE) {
+            seed = uint256(keccak256(abi.encode(seed)));
+            if (veto.state() == GradualVeto.State.INITIATED && veto.projected().pausedSeconds < CEILING)
+            {
+                veto.pause();
+            }
+            uint256 step = 1 + (seed % 20);
+            vm.warp(block.timestamp + step);
+            elapsed += step;
+            if (veto.state() == GradualVeto.State.PAUSED && (seed >> 128) % 2 == 0) veto.resume();
+        }
+        // The final step may overshoot maturity by at most its own length.
+        assertLe(elapsed, uint256(TIMELOCK) + CEILING + 20);
     }
 
     /// @dev Projection must not depend on how often anyone pokes the contract.

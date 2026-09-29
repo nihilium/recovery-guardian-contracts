@@ -56,12 +56,17 @@ contract RecoveryModule is ERC7579ExecutorBase {
         address recoveryOwner;
         /// @dev Bumped on every completed recovery, which invalidates every prior-epoch intent.
         uint256 epoch;
+        /// @dev Bumped on every completed *and every aborted* recovery. Spending the nonce on abort
+        ///      is what makes abort final for that intent: its signature is public calldata, and
+        ///      without the bump anyone could resubmit it and reopen the attempt until it expired.
         uint256 nonce;
-        /// @dev Bumped on every `initiateRecovery`, folded into `resumeDigest`. Lives here rather
-        ///      than in `Attempt` for the same reason `epoch`/`nonce` do: `onUninstall` deletes
-        ///      `_attempts[account]` but deliberately leaves this struct's other replay-protection
-        ///      fields alone, so a resume signature banked before an uninstall cannot be replayed
-        ///      onto an attempt opened after a reinstall.
+        /// @dev Bumped on every `initiateRecovery` *and every `pause`*, folded into `resumeDigest`.
+        ///      So a resume endorsement lifts exactly one pause: banked signatures cannot undo a
+        ///      later pause of the same attempt, nor any pause of a later attempt that happens to
+        ///      reuse the same intent fields. Lives here rather than in `Attempt` for the same
+        ///      reason `epoch`/`nonce` do: `onUninstall` deletes `_attempts[account]` but
+        ///      deliberately leaves this struct's other replay-protection fields alone, so a resume
+        ///      signature banked before an uninstall cannot be replayed after a reinstall.
         uint256 attemptSeq;
         GradualVeto.Config veto;
     }
@@ -77,6 +82,8 @@ contract RecoveryModule is ERC7579ExecutorBase {
     bytes32 private constant INTENT_TYPEHASH = keccak256(
         "Intent(address account,uint256 epoch,uint256 nonce,address newValidator,bytes newValidatorInitData,uint48 expiry)"
     );
+    /// @dev The field keeps its v3 name, but since v4 `attemptSeq` also moves on every pause — see
+    ///      `AccountConfig.attemptSeq`.
     bytes32 private constant RESUME_TYPEHASH =
         keccak256("Resume(address account,bytes32 intentHash,uint256 attemptSeq)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256(
@@ -105,6 +112,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
     error NotResumeQuorum();
     error DuplicateResumeSigner(address signer);
     error ZeroValidator();
+    error ZeroRecoveryOwner();
 
     // ---------------------------------------------------------------------------------------
     // Installation
@@ -116,8 +124,9 @@ contract RecoveryModule is ERC7579ExecutorBase {
 
         (address recoveryOwner, GradualVeto.Config memory veto) =
             abi.decode(data, (address, GradualVeto.Config));
-        if (recoveryOwner == address(0)) revert BadSignature();
+        if (recoveryOwner == address(0)) revert ZeroRecoveryOwner();
         GradualVeto.validate(veto);
+        GradualVeto.validateRecoveryOwner(veto, recoveryOwner);
 
         AccountConfig storage config = _configs[msg.sender];
         config.installed = true;
@@ -159,7 +168,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
     }
 
     function version() external pure returns (string memory) {
-        return "3.0.0";
+        return "4.0.0";
     }
 
     // ---------------------------------------------------------------------------------------
@@ -202,12 +211,14 @@ contract RecoveryModule is ERC7579ExecutorBase {
         emit RecoveryInitiated(intent.account, intentHash, config.epoch);
     }
 
-    /// @notice INITIATED -> PAUSED, by the pause authority only (§15).
+    /// @notice INITIATED -> PAUSED, by the pause authority only (§15). Invalidates every resume
+    ///         signature collected so far: lifting this pause takes fresh endorsements.
     function pause(address account) external {
         AccountConfig storage config = _requireInstalled(account);
         if (msg.sender != config.veto.pauseAuthority) revert NotPauseAuthority();
         Attempt storage attempt = _requireAttempt(account);
         config.veto.pause(attempt.veto);
+        config.attemptSeq += 1;
         emit RecoveryPaused(account, attempt.intentHash);
     }
 
@@ -258,6 +269,8 @@ contract RecoveryModule is ERC7579ExecutorBase {
         if (msg.sender != config.veto.abortAuthority) revert NotAbortAuthority();
         Attempt storage attempt = _requireAttempt(account);
         config.veto.abort(attempt.veto);
+        // Spend the aborted intent's nonce, so its public signature cannot reopen the attempt.
+        config.nonce += 1;
         emit RecoveryAborted(account, attempt.intentHash);
     }
 
@@ -346,10 +359,10 @@ contract RecoveryModule is ERC7579ExecutorBase {
         return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
     }
 
-    /// @notice What a resume-quorum member signs. Bound to the attempt via `attemptSeq`, which is
-    ///         bumped on every `initiateRecovery` — so an endorsement of one attempt cannot be
-    ///         replayed onto a later attempt that happens to reuse the same intent fields (and
-    ///         hence the same `intentHash`) after an abort and reinitiate.
+    /// @notice What a resume-quorum member signs. Bound to one pause via `attemptSeq`, which is
+    ///         bumped on every `initiateRecovery` and every `pause` — so an endorsement cannot be
+    ///         replayed onto a later pause of the same attempt, nor onto a later attempt. Sign it
+    ///         after the pause it is meant to lift, reading the digest from this view.
     function resumeDigest(address account, bytes32 intentHash) public view returns (bytes32) {
         uint256 attemptSeq = _configs[account].attemptSeq;
         return keccak256(
@@ -366,7 +379,7 @@ contract RecoveryModule is ERC7579ExecutorBase {
             abi.encode(
                 DOMAIN_TYPEHASH,
                 keccak256("NihiliumRecoveryModule"),
-                keccak256("3.0.0"),
+                keccak256("4.0.0"),
                 block.chainid,
                 address(this)
             )

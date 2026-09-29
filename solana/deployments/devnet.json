@@ -1,0 +1,19 @@
+{
+  "cluster": "devnet",
+  "clusterTag": "nihilium-cluster:devnet",
+  "programId": "DaLebS3k5gD1k42uGU6LPnSP9qTNwYxaKqLQBb7BqgkG",
+  "programDataAddress": "FLXPVWxPydQ9NwFi1kjAwunGfzU5nFbfmE5VTChMbua6",
+  "deployedAtSlot": 501813912,
+  "deploySignature": "4hJr8oEsK31E7TLQN1MeE4JEpQPiso89TpWrDXN2q5oWpfvJe8jDNKLfH5AdWcqmPVtMoG5Pio4aR1QS1Ysc24Kv",
+  "dataLength": 349736,
+  "binarySha256": "1442ff2d0163b17c713291cbbbd90d18f213fdbbd408fb30d5fa749b904c738b",
+  "upgradeAuthority": "7hn12mi6F3TFiy6JQZw3DpB1mhDAdNE5y7Aufu3px9a7",
+  "immutable": false,
+  "buildFeatures": [
+    "devnet"
+  ],
+  "anchorVersion": "0.31.1",
+  "platformTools": "v1.53",
+  "version": "0.7.2",
+  "note": "Program account extended to 349736 bytes to leave headroom for upgrades; the binary itself is smaller. Solana refuses an extension under 10240 bytes, so an upgrade that grows the program at all needs one planned in advance."
+}

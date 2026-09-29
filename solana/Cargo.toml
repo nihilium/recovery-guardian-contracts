@@ -1,0 +1,13 @@
+# Standalone Cargo workspace, independent of the SDK's TypeScript build and of `evm/`'s Foundry
+# tree. Each chain directory installs its own toolchain, so `cargo test` here never needs either.
+[workspace]
+members = ["crates/*", "programs/*"]
+resolver = "2"
+
+[profile.release]
+# Solana release builds wrap on overflow unless this is set, and every arithmetic site in the veto
+# clock is security-relevant. `GradualVeto.sol` gets this from solc 0.8's checked arithmetic by
+# default; on this side it has to be asked for.
+overflow-checks = true
+lto = "fat"
+codegen-units = 1

@@ -714,6 +714,11 @@ export const recoveryModuleAbi = [
     },
     {
         "type": "error",
+        "name": "PauseBudgetExhausted",
+        "inputs": []
+    },
+    {
+        "type": "error",
         "name": "UnknownIntent",
         "inputs": []
     },
@@ -756,6 +761,11 @@ export const recoveryModuleAbi = [
     },
     {
         "type": "error",
+        "name": "ZeroRecoveryOwner",
+        "inputs": []
+    },
+    {
+        "type": "error",
         "name": "ZeroValidator",
         "inputs": []
     }
@@ -793,11 +803,24 @@ export const gradualVetoAbi = [
         "type": "error",
         "name": "NotPaused",
         "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "PauseBudgetExhausted",
+        "inputs": []
     }
 ] as const;
 
 /** ABI of `Eip7702RecoveryAccount`, from the Forge build artifact. */
 export const eip7702RecoveryAccountAbi = [
+    {
+        "type": "fallback",
+        "stateMutability": "payable"
+    },
+    {
+        "type": "receive",
+        "stateMutability": "payable"
+    },
     {
         "type": "function",
         "name": "abort",
@@ -921,6 +944,49 @@ export const eip7702RecoveryAccountAbi = [
                         "internalType": "uint64"
                     }
                 ]
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "eip712Domain",
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "fields",
+                "type": "bytes1",
+                "internalType": "bytes1"
+            },
+            {
+                "name": "name",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "version",
+                "type": "string",
+                "internalType": "string"
+            },
+            {
+                "name": "chainId",
+                "type": "uint256",
+                "internalType": "uint256"
+            },
+            {
+                "name": "verifyingContract",
+                "type": "address",
+                "internalType": "address"
+            },
+            {
+                "name": "salt",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "extensions",
+                "type": "uint256[]",
+                "internalType": "uint256[]"
             }
         ],
         "stateMutability": "view"
@@ -1205,6 +1271,30 @@ export const eip7702RecoveryAccountAbi = [
                 "name": "",
                 "type": "bool",
                 "internalType": "bool"
+            }
+        ],
+        "stateMutability": "view"
+    },
+    {
+        "type": "function",
+        "name": "isValidSignature",
+        "inputs": [
+            {
+                "name": "hash",
+                "type": "bytes32",
+                "internalType": "bytes32"
+            },
+            {
+                "name": "signature",
+                "type": "bytes",
+                "internalType": "bytes"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "result",
+                "type": "bytes4",
+                "internalType": "bytes4"
             }
         ],
         "stateMutability": "view"
@@ -1566,6 +1656,11 @@ export const eip7702RecoveryAccountAbi = [
     },
     {
         "type": "error",
+        "name": "FnSelectorNotRecognized",
+        "inputs": []
+    },
+    {
+        "type": "error",
         "name": "IntentExpired",
         "inputs": []
     },
@@ -1618,6 +1713,11 @@ export const eip7702RecoveryAccountAbi = [
     {
         "type": "error",
         "name": "NotResumeQuorum",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "PauseBudgetExhausted",
         "inputs": []
     },
     {
@@ -1676,6 +1776,11 @@ export const eip7702RecoveryAccountAbi = [
     {
         "type": "error",
         "name": "ZeroOwner",
+        "inputs": []
+    },
+    {
+        "type": "error",
+        "name": "ZeroRecoveryOwner",
         "inputs": []
     }
 ] as const;

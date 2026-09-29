@@ -1,0 +1,8 @@
+{
+  "chainId": 421614,
+  "deployedAtBlock": 11800986,
+  "initCodeHash": "0xd920e41ab83fea82c8d0751698915daf91174761bcf12a88a7c799e51f991e10",
+  "recoveryAccount": "0xF5768f61C8739727cf392C8655E0a67BEb25B872",
+  "salt": "0x9ee0ac658542f916cf233592063e1f49a75844af7f90190630b982af45ba5d56",
+  "version": "1.0.0"
+}

@@ -59,7 +59,11 @@ library GradualVeto {
         State state;
         /// @dev Seconds accrued toward `timelockSeconds`, as of `checkpointTime`.
         uint64 accruedSeconds;
-        /// @dev Seconds spent in the current pause, as of `checkpointTime`.
+        /// @dev Seconds spent paused over this whole attempt, across every pause, as of
+        ///      `checkpointTime`. Never reset by a resume or an auto-resume — only by `start` — so
+        ///      `pauseCeilingSeconds` bounds the pause authority's *total* freeze, not each pause.
+        ///      A per-pause bound would let the pause authority re-pause the moment each ceiling
+        ///      lapsed and hold the attempt indefinitely.
         uint64 pausedSeconds;
         /// @dev The timestamp `accruedSeconds` / `pausedSeconds` were last brought up to date at.
         uint64 checkpointTime;
@@ -69,6 +73,7 @@ library GradualVeto {
     error NotPaused();
     error NotExecutable();
     error AlreadyTerminal();
+    error PauseBudgetExhausted();
     error InvalidConfig(string reason);
 
     /**
@@ -102,9 +107,10 @@ library GradualVeto {
                     attempt.pausedSeconds += remaining;
                     return attempt;
                 }
-                // Ceiling reached: auto-resume, with no resume signature involved (§15).
+                // Budget spent: auto-resume, with no resume signature involved (§15). The budget
+                // stays spent, so the pause authority cannot pause this attempt again.
                 attempt.state = State.INITIATED;
-                attempt.pausedSeconds = 0;
+                attempt.pausedSeconds = config.pauseCeilingSeconds;
                 remaining -= untilCeiling;
             } else if (attempt.state == State.INITIATED) {
                 uint64 untilMature = config.timelockSeconds - attempt.accruedSeconds;
@@ -141,6 +147,7 @@ library GradualVeto {
     /**
      * @notice INITIATED -> PAUSED. Deliberately NOT legal from EXECUTABLE: once the timelock has
      *         matured the window for slowing things down has closed, and only abort remains (§15).
+     *         Also not legal once the attempt's pause budget (`pauseCeilingSeconds`) is spent.
      */
     function pause(Config storage config, Attempt storage attempt) internal {
         settle(config, attempt);
@@ -149,18 +156,17 @@ library GradualVeto {
         // race that never happened.
         if (isTerminal(attempt.state)) revert AlreadyTerminal();
         if (attempt.state != State.INITIATED) revert NotInitiated();
+        if (attempt.pausedSeconds >= config.pauseCeilingSeconds) revert PauseBudgetExhausted();
         attempt.state = State.PAUSED;
-        attempt.pausedSeconds = 0;
     }
 
     /// @notice PAUSED -> INITIATED. The accrued timelock is preserved: the clock stopped, it did
-    /// not reset.
+    /// not reset. The pause budget spent so far stays spent.
     function resume(Config storage config, Attempt storage attempt) internal {
         settle(config, attempt);
         if (isTerminal(attempt.state)) revert AlreadyTerminal();
         if (attempt.state != State.PAUSED) revert NotPaused();
         attempt.state = State.INITIATED;
-        attempt.pausedSeconds = 0;
     }
 
     /// @notice Any non-terminal -> ABORTED. Irreversible.
@@ -216,8 +222,9 @@ library GradualVeto {
             revert InvalidConfig("resumeThreshold exceeds membership");
         }
         if (config.timelockSeconds == 0) revert InvalidConfig("timelockSeconds is zero");
-        // Without a positive ceiling a pause never auto-resumes, and the pause-holder's bounded
-        // "freeze" becomes an unbounded one.
+        // A zero budget would make every pause revert, silently removing the pause authority. The
+        // budget is cumulative per attempt (see `Attempt.pausedSeconds`), which is what keeps the
+        // pause-holder's freeze bounded.
         if (config.pauseCeilingSeconds == 0) revert InvalidConfig("pauseCeilingSeconds is zero");
 
         if (config.abortAuthority == config.pauseAuthority) {
@@ -240,6 +247,27 @@ library GradualVeto {
                 if (config.resumeMembers[j] == member) {
                     revert InvalidConfig("resumeQuorum contains a duplicate");
                 }
+            }
+        }
+    }
+
+    /**
+     * @notice The recovery key must hold no veto role. Unlike the condition surface, its address
+     *         is on-chain, so this half of the independence invariant can be enforced here.
+     * @dev A recovery owner that is also the pause authority or a resume member can both open an
+     *      attempt and release it, and as the abort authority it could silence the one party meant
+     *      to stop it.
+     */
+    function validateRecoveryOwner(Config memory config, address recoveryOwner) internal pure {
+        if (
+            recoveryOwner == config.pauseAuthority || recoveryOwner == config.abortAuthority
+        ) {
+            revert InvalidConfig("recoveryOwner holds a veto role");
+        }
+        uint256 length = config.resumeMembers.length;
+        for (uint256 i = 0; i < length; i++) {
+            if (config.resumeMembers[i] == recoveryOwner) {
+                revert InvalidConfig("recoveryOwner holds a veto role");
             }
         }
     }

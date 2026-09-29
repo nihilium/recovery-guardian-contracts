@@ -10,8 +10,8 @@ implementation, one directory per chain.
 
 | Directory | Chain | Status |
 |---|---|---|
-| [`evm/`](evm/) | Ethereum and other EVM chains (Foundry) | Live — deployed on Sepolia and Arbitrum One, see [`evm/README.md`](evm/README.md) |
-| `solana/` | Solana (Anchor) | Not started |
+| [`evm/`](evm/) | Ethereum and other EVM chains (Foundry) | Live on Sepolia, Arbitrum One and Arbitrum Sepolia — **every deployed version has known issues**, see the advisory in [`evm/README.md`](evm/README.md) |
+| [`solana/`](solana/) | Solana (Anchor) | In progress — veto state machine ported and pinned to the oracle; programs not yet written, see [`solana/README.md`](solana/README.md) |
 
 `nihilium-recovery-sdk` pulls this whole repo in as a single git submodule mounted at `onchain/`,
 pinned to a specific reviewed commit rather than tracking `main`, so `onchain/evm/` here lines up
