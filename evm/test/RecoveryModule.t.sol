@@ -125,6 +125,28 @@ contract RecoveryModuleTest is Test {
         module.onInstall(abi.encode(recoveryOwner, bad));
     }
 
+    /// @dev L-3: the recovery key's address is on-chain, so it must not also hold a veto role.
+    function test_installRejectsRecoveryOwnerHoldingAVetoRole() public {
+        address[3] memory roles = [pauser, aborter, g1];
+        for (uint256 i = 0; i < roles.length; i++) {
+            MockERC7579Account other = new MockERC7579Account();
+            vm.prank(address(other));
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    GradualVeto.InvalidConfig.selector, "recoveryOwner holds a veto role"
+                )
+            );
+            module.onInstall(abi.encode(roles[i], _veto()));
+        }
+    }
+
+    function test_installRejectsAZeroRecoveryOwner() public {
+        MockERC7579Account other = new MockERC7579Account();
+        vm.prank(address(other));
+        vm.expectRevert(RecoveryModule.ZeroRecoveryOwner.selector);
+        module.onInstall(abi.encode(address(0), _veto()));
+    }
+
     function test_isModuleTypeIsExecutorOnly() public view {
         assertTrue(module.isModuleType(2), "must be an executor");
         // Registering as a validator would let the recovery key authorize arbitrary user
@@ -204,14 +226,39 @@ contract RecoveryModuleTest is Test {
         module.initiateRecovery(second, sig);
     }
 
+    /// @dev A fresh intent, signed for the nonce the abort moved to, may open a new attempt.
     function test_aNewAttemptIsAllowedAfterAnAbort() public {
         _initiate();
         vm.prank(aborter);
         module.abort(address(account));
 
-        RecoveryModule.Intent memory second = _intent(0, 0);
+        RecoveryModule.Intent memory second = _intent(0, 1);
         module.initiateRecovery(second, _sign(recoveryKey, module.hashIntent(second)));
         assertEq(uint8(module.stateOf(address(account))), uint8(GradualVeto.State.INITIATED));
+    }
+
+    function test_abortBumpsTheNonceButNotTheEpoch() public {
+        _initiate();
+        vm.prank(aborter);
+        module.abort(address(account));
+        (, uint256 epoch, uint256 nonce,) = module.configOf(address(account));
+        assertEq(epoch, 0);
+        assertEq(nonce, 1);
+    }
+
+    /// @dev M-1: an aborted intent's signature is public calldata. If abort left the nonce alone,
+    ///      anyone could resubmit it and reopen the attempt until it expired — so abort would only
+    ///      ever kill one attempt, and the offline abort key would have to come back for each.
+    function test_abortedIntentCannotBeReinitiated() public {
+        RecoveryModule.Intent memory intent = _intent(0, 0);
+        bytes memory sig = _sign(recoveryKey, module.hashIntent(intent));
+        module.initiateRecovery(intent, sig);
+        vm.prank(aborter);
+        module.abort(address(account));
+
+        vm.prank(makeAddr("griefer"));
+        vm.expectRevert(abi.encodeWithSelector(RecoveryModule.WrongNonce.selector, 1, 0));
+        module.initiateRecovery(intent, sig);
     }
 
     // -----------------------------------------------------------------------------------
@@ -308,16 +355,9 @@ contract RecoveryModuleTest is Test {
         module.resume(address(account), signers, signatures);
     }
 
-    /// @dev A guardian endorsement is bound to the attempt, so it cannot be banked and replayed
+    /// @dev A guardian endorsement is bound to one pause, so it cannot be banked and replayed
     ///      against a later recovery the guardian never saw.
-    /// @dev The actual colliding case: byte-identical intent fields across an abort + reinitiate
-    ///      reproduce the same intentHash (intentHash does not depend on anything an abort or a
-    ///      fresh initiateRecovery changes), so a guardian's endorsement of the first attempt must
-    ///      still be rejected on the second — it is `attemptSeq`, not intentHash alone, that makes
-    ///      resumeDigest attempt-specific. (A prior version of this test mutated an intent field
-    ///      between attempts, which changes intentHash and sidesteps the collision entirely — that
-    ///      gave false confidence, since resumeDigest already binds intentHash.)
-    function test_resumeSignatureDoesNotReplayOntoALaterAttemptWithIdenticalIntent() public {
+    function test_resumeSignatureDoesNotReplayOntoALaterAttempt() public {
         _initiate();
         vm.prank(pauser);
         module.pause(address(account));
@@ -325,7 +365,7 @@ contract RecoveryModuleTest is Test {
 
         vm.prank(aborter);
         module.abort(address(account));
-        RecoveryModule.Intent memory second = _intent(0, 0);
+        RecoveryModule.Intent memory second = _intent(0, 1);
         module.initiateRecovery(second, _sign(recoveryKey, module.hashIntent(second)));
         vm.prank(pauser);
         module.pause(address(account));
@@ -334,19 +374,47 @@ contract RecoveryModuleTest is Test {
         module.resume(address(account), signers, signatures);
     }
 
-    /// @dev Direct proof of the mechanism: resumeDigest for the *same* intentHash changes across
-    ///      attempts, because it is bound to attemptSeq, not intentHash alone.
-    function test_resumeDigestChangesAcrossAttemptsSharingTheSameIntentHash() public {
+    /// @dev H-1: once a resume has been submitted its signatures are public. If they stayed valid
+    ///      for the whole attempt, anyone could undo every later pause the moment it landed,
+    ///      leaving the pause authority a single-use veto.
+    function test_resumeSignaturesDoNotReplayAcrossPausesOfOneAttempt() public {
+        _initiate();
+        vm.prank(pauser);
+        module.pause(address(account));
+        (address[] memory signers, bytes[] memory signatures) = _resumeSigs();
+        module.resume(address(account), signers, signatures);
+
+        vm.prank(pauser);
+        module.pause(address(account));
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert(RecoveryModule.BadSignature.selector);
+        module.resume(address(account), signers, signatures);
+        assertEq(uint8(module.stateOf(address(account))), uint8(GradualVeto.State.PAUSED));
+
+        // Fresh endorsements of the new pause still work.
+        (signers, signatures) = _resumeSigs();
+        module.resume(address(account), signers, signatures);
+        assertEq(uint8(module.stateOf(address(account))), uint8(GradualVeto.State.INITIATED));
+    }
+
+    /// @dev Direct proof of the mechanism: resumeDigest for the same intentHash changes on every
+    ///      pause, because every pause moves attemptSeq.
+    function test_resumeDigestChangesOnEveryPause() public {
         RecoveryModule.Intent memory intent = _initiate();
         bytes32 intentHash = module.hashIntent(intent);
-        bytes32 firstDigest = module.resumeDigest(address(account), intentHash);
+        bytes32 before = module.resumeDigest(address(account), intentHash);
 
-        vm.prank(aborter);
-        module.abort(address(account));
-        module.initiateRecovery(intent, _sign(recoveryKey, intentHash));
-        bytes32 secondDigest = module.resumeDigest(address(account), intentHash);
+        vm.prank(pauser);
+        module.pause(address(account));
+        bytes32 firstPause = module.resumeDigest(address(account), intentHash);
+        (address[] memory signers, bytes[] memory signatures) = _resumeSigs();
+        module.resume(address(account), signers, signatures);
+        vm.prank(pauser);
+        module.pause(address(account));
+        bytes32 secondPause = module.resumeDigest(address(account), intentHash);
 
-        assertTrue(firstDigest != secondDigest, "resumeDigest must differ across attempts");
+        assertTrue(before != firstPause, "pause must move the digest");
+        assertTrue(firstPause != secondPause, "every pause must move the digest");
     }
 
     // -----------------------------------------------------------------------------------
