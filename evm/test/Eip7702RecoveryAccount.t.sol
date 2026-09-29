@@ -324,12 +324,13 @@ contract Eip7702RecoveryAccountTest is Test {
         _acc().initiateRecovery(second, sig);
     }
 
+    /// @dev A fresh intent, signed for the nonce the abort moved to, may open a new attempt.
     function test_aNewAttemptIsAllowedAfterAnAbort() public {
         _initiate();
         vm.prank(aborter);
         _acc().abort();
 
-        Eip7702RecoveryAccount.Intent memory second = _intent(0, 0);
+        Eip7702RecoveryAccount.Intent memory second = _intent(0, 1);
         _acc().initiateRecovery(second, _sign(recoveryKey, _acc().hashIntent(second)));
         assertEq(uint8(_acc().stateOf()), uint8(GradualVeto.State.INITIATED));
     }
@@ -430,11 +431,8 @@ contract Eip7702RecoveryAccountTest is Test {
         _acc().resume(signers, signatures);
     }
 
-    /// @dev The direct fix for the resume-replay finding: an endorsement of one attempt must not be
-    ///      valid for a later attempt that happens to share the same intent fields (and hence the
-    ///      same intentHash) after an abort and reinitiate — the actual colliding case, not a
-    ///      sidestepped one.
-    function test_resumeSignatureDoesNotReplayOntoALaterAttemptWithIdenticalIntent() public {
+    /// @dev An endorsement of one attempt must not be valid for a later attempt.
+    function test_resumeSignatureDoesNotReplayOntoALaterAttempt() public {
         _initiate();
         vm.prank(pauser);
         _acc().pause();
@@ -442,8 +440,7 @@ contract Eip7702RecoveryAccountTest is Test {
 
         vm.prank(aborter);
         _acc().abort();
-        // Byte-identical intent fields — the actual colliding case, not a mutated one.
-        Eip7702RecoveryAccount.Intent memory second = _intent(0, 0);
+        Eip7702RecoveryAccount.Intent memory second = _intent(0, 1);
         _acc().initiateRecovery(second, _sign(recoveryKey, _acc().hashIntent(second)));
         vm.prank(pauser);
         _acc().pause();
@@ -452,19 +449,57 @@ contract Eip7702RecoveryAccountTest is Test {
         _acc().resume(signers, signatures);
     }
 
-    /// @dev Direct proof of the mechanism: resumeDigest for the *same* intentHash changes across
-    ///      attempts, because attemptSeq — not intentHash alone — is what it's bound to.
-    function test_resumeDigestChangesAcrossAttemptsSharingTheSameIntentHash() public {
+    /// @dev H-1: once submitted, resume signatures are public. If they stayed valid for the whole
+    ///      attempt, anyone could undo every later pause the moment it landed.
+    function test_resumeSignaturesDoNotReplayAcrossPausesOfOneAttempt() public {
+        _initiate();
+        vm.prank(pauser);
+        _acc().pause();
+        (address[] memory signers, bytes[] memory signatures) = _resumeSigs();
+        _acc().resume(signers, signatures);
+
+        vm.prank(pauser);
+        _acc().pause();
+        vm.prank(makeAddr("attacker"));
+        vm.expectRevert(Eip7702RecoveryAccount.BadSignature.selector);
+        _acc().resume(signers, signatures);
+        assertEq(uint8(_acc().stateOf()), uint8(GradualVeto.State.PAUSED));
+
+        (signers, signatures) = _resumeSigs();
+        _acc().resume(signers, signatures);
+        assertEq(uint8(_acc().stateOf()), uint8(GradualVeto.State.INITIATED));
+    }
+
+    /// @dev Direct proof of the mechanism: the digest moves on every pause.
+    function test_resumeDigestChangesOnEveryPause() public {
         Eip7702RecoveryAccount.Intent memory intent = _initiate();
         bytes32 intentHash = _acc().hashIntent(intent);
-        bytes32 firstDigest = _acc().resumeDigest(intentHash);
+        bytes32 before = _acc().resumeDigest(intentHash);
 
+        vm.prank(pauser);
+        _acc().pause();
+        bytes32 firstPause = _acc().resumeDigest(intentHash);
+        (address[] memory signers, bytes[] memory signatures) = _resumeSigs();
+        _acc().resume(signers, signatures);
+        vm.prank(pauser);
+        _acc().pause();
+        bytes32 secondPause = _acc().resumeDigest(intentHash);
+
+        assertTrue(before != firstPause, "pause must move the digest");
+        assertTrue(firstPause != secondPause, "every pause must move the digest");
+    }
+
+    /// @dev M-1: an aborted intent's public signature must not reopen the attempt.
+    function test_abortedIntentCannotBeReinitiated() public {
+        Eip7702RecoveryAccount.Intent memory intent = _intent(0, 0);
+        bytes memory sig = _sign(recoveryKey, _acc().hashIntent(intent));
+        _acc().initiateRecovery(intent, sig);
         vm.prank(aborter);
         _acc().abort();
-        _acc().initiateRecovery(intent, _sign(recoveryKey, intentHash));
-        bytes32 secondDigest = _acc().resumeDigest(intentHash);
 
-        assertTrue(firstDigest != secondDigest, "resumeDigest must differ across attempts");
+        vm.prank(makeAddr("griefer"));
+        vm.expectRevert(abi.encodeWithSelector(Eip7702RecoveryAccount.WrongNonce.selector, 1, 0));
+        _acc().initiateRecovery(intent, sig);
     }
 
     // -----------------------------------------------------------------------------------
@@ -722,7 +757,7 @@ contract Eip7702RecoveryAccountTest is Test {
                     "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
                 ),
                 keccak256("Nihilium7702RecoveryAccount"),
-                keccak256("1.0.0"),
+                keccak256("2.0.0"),
                 block.chainid,
                 eoa
             )
@@ -731,5 +766,227 @@ contract Eip7702RecoveryAccountTest is Test {
             keccak256(abi.encodePacked("\x19\x01", domainSeparator, registerStructHash));
 
         assertEq(_acc().hashRegister(reg), expected);
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Registration while an attempt is live (M-3 / L-1) and recovery-key independence (L-3)
+    // -----------------------------------------------------------------------------------
+
+    function _rotation(address newRecoveryOwner, uint256 configNonce)
+        internal
+        view
+        returns (Eip7702RecoveryAccount.RegisterMessage memory)
+    {
+        return Eip7702RecoveryAccount.RegisterMessage({
+            recoveryOwner: newRecoveryOwner,
+            veto: _veto(),
+            nonce: configNonce
+        });
+    }
+
+    /// @dev M-3: rotating away a compromised key must not leave that key's attempt running.
+    function test_registerIsRefusedWhileAnAttemptIsInFlight() public {
+        _initiate();
+        (address freshOwner, uint256 freshKey) = makeAddrAndKey("freshRecoveryOwner");
+        Eip7702RecoveryAccount.RegisterMessage memory reg = _rotation(freshOwner, 1);
+        bytes32 digest = _acc().hashRegister(reg);
+        bytes memory rkSig = _sign(freshKey, digest);
+        bytes memory ownerSig = _sign(eoaKey, digest);
+
+        vm.expectRevert(Eip7702RecoveryAccount.AttemptInFlight.selector);
+        _acc().register(reg, rkSig, ownerSig);
+
+        // Also while paused, and while matured-but-unexecuted.
+        vm.prank(pauser);
+        _acc().pause();
+        vm.expectRevert(Eip7702RecoveryAccount.AttemptInFlight.selector);
+        _acc().register(reg, rkSig, ownerSig);
+        vm.warp(block.timestamp + CEILING + TIMELOCK);
+        assertEq(uint8(_acc().stateOf()), uint8(GradualVeto.State.EXECUTABLE));
+        vm.expectRevert(Eip7702RecoveryAccount.AttemptInFlight.selector);
+        _acc().register(reg, rkSig, ownerSig);
+
+        // Once the attempt is aborted, the rotation goes through.
+        vm.prank(aborter);
+        _acc().abort();
+        _acc().register(reg, rkSig, ownerSig);
+        (, address boundRecoveryOwner,,,,,) = _acc().configOf();
+        assertEq(boundRecoveryOwner, freshOwner);
+    }
+
+    function test_registerRejectsARecoveryOwnerHoldingAVetoRole() public {
+        address[3] memory roles = [pauser, aborter, g1];
+        for (uint256 i = 0; i < roles.length; i++) {
+            Eip7702RecoveryAccount.RegisterMessage memory reg = _rotation(roles[i], 1);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    GradualVeto.InvalidConfig.selector, "recoveryOwner holds a veto role"
+                )
+            );
+            _acc().register(reg, "", "");
+        }
+    }
+
+    function test_registerRejectsAZeroRecoveryOwner() public {
+        Eip7702RecoveryAccount.RegisterMessage memory reg = _rotation(address(0), 1);
+        vm.expectRevert(Eip7702RecoveryAccount.ZeroRecoveryOwner.selector);
+        _acc().register(reg, "", "");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // Behaving like an account once delegated (M-4)
+    // -----------------------------------------------------------------------------------
+
+    function test_acceptsPlainEthTransfers() public {
+        address payer = makeAddr("payer");
+        vm.deal(payer, 1 ether);
+        uint256 before = eoa.balance;
+        vm.prank(payer);
+        (bool ok,) = eoa.call{ value: 1 ether }("");
+        assertTrue(ok, "a delegated EOA must still accept ETH");
+        assertEq(eoa.balance, before + 1 ether);
+    }
+
+    function test_acceptsSafeTokenTransferCallbacks() public {
+        bytes4[3] memory selectors = [bytes4(0x150b7a02), bytes4(0xf23a6e61), bytes4(0xbc197c81)];
+        bytes[3] memory calls = [
+            abi.encodeWithSelector(selectors[0], address(1), address(2), 3, ""),
+            abi.encodeWithSelector(selectors[1], address(1), address(2), 3, 4, ""),
+            abi.encodeWithSelector(
+                selectors[2], address(1), address(2), new uint256[](0), new uint256[](0), ""
+            )
+        ];
+        for (uint256 i = 0; i < 3; i++) {
+            (bool ok, bytes memory ret) = eoa.call(calls[i]);
+            assertTrue(ok);
+            assertEq(bytes4(ret), selectors[i], "must echo the callback selector");
+        }
+    }
+
+    function test_unknownSelectorsStillRevert() public {
+        (bool ok,) = eoa.call(abi.encodeWithSignature("notAFunction()"));
+        assertFalse(ok);
+    }
+
+    // -----------------------------------------------------------------------------------
+    // ERC-1271 (M-4) and non-EOA owners (L-2)
+    // -----------------------------------------------------------------------------------
+
+    bytes4 internal constant ERC1271_MAGIC = 0x1626ba7e;
+
+    function _recoverTo(address to) internal {
+        Eip7702RecoveryAccount.Intent memory intent = _intent(0, 0);
+        intent.newOwner = to;
+        _acc().initiateRecovery(intent, _sign(recoveryKey, _acc().hashIntent(intent)));
+        vm.warp(block.timestamp + TIMELOCK);
+        _acc().executeRecovery(intent);
+    }
+
+    /// @dev The ERC-7739 PersonalSign wrapping, computed from `eip712Domain()` rather than by the
+    ///      contract's own helpers.
+    function _personalSignDigest(bytes32 hash) internal view returns (bytes32) {
+        (, string memory name, string memory version, uint256 chainId, address verifying,,) =
+            _acc().eip712Domain();
+        bytes32 domain = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
+                keccak256(bytes(name)),
+                keccak256(bytes(version)),
+                chainId,
+                verifying
+            )
+        );
+        bytes32 structHash = keccak256(abi.encode(keccak256("PersonalSign(bytes prefixed)"), hash));
+        return keccak256(abi.encodePacked("\x19\x01", domain, structHash));
+    }
+
+    function test_erc1271AdvertisesErc7739() public view {
+        bytes32 probe = 0x7739773977397739773977397739773977397739773977397739773977397739;
+        assertEq(_acc().isValidSignature(probe, ""), bytes4(0x77390001));
+    }
+
+    /// @dev Before any recovery the EOA's own plain signatures keep working, so delegating does
+    ///      not break permits and logins it already relies on.
+    function test_erc1271AcceptsTheEoasPlainSignatureBeforeRecovery() public {
+        // Solady's ERC-1271 treats a zero gas price as an off-chain eth_call and burns gas on a bad
+        // signature; on-chain the price is never zero, so test under on-chain conditions.
+        vm.txGasPrice(1 gwei);
+        bytes32 hash = keccak256("permit");
+        assertEq(_acc().isValidSignature(hash, _sign(eoaKey, hash)), ERC1271_MAGIC);
+        (, uint256 strangerKey) = makeAddrAndKey("stranger");
+        assertEq(_acc().isValidSignature(hash, _sign(strangerKey, hash)), bytes4(0xffffffff));
+    }
+
+    /// @dev After a recovery the new owner's key may own other accounts too, so only the
+    ///      account-bound ERC-7739 form is accepted, and the stale EOA key is out.
+    function test_erc1271AfterRecoveryAcceptsOnlyTheNewOwnersNestedSignature() public {
+        // Solady's ERC-1271 treats a zero gas price as an off-chain eth_call and burns gas on a bad
+        // signature; on-chain the price is never zero, so test under on-chain conditions.
+        vm.txGasPrice(1 gwei);
+        (address recovered, uint256 recoveredKey) = makeAddrAndKey("erc1271RecoveredOwner");
+        _recoverTo(recovered);
+        bytes32 hash = keccak256("permit");
+
+        assertEq(
+            _acc().isValidSignature(hash, _sign(recoveredKey, hash)),
+            bytes4(0xffffffff),
+            "raw signature from a post-recovery owner is replayable across accounts"
+        );
+        assertEq(
+            _acc().isValidSignature(hash, _sign(eoaKey, _personalSignDigest(hash))),
+            bytes4(0xffffffff),
+            "the stale EOA key must not sign for the account"
+        );
+        assertEq(
+            _acc().isValidSignature(hash, _sign(recoveredKey, _personalSignDigest(hash))),
+            ERC1271_MAGIC
+        );
+    }
+
+    /// @dev L-2: a contract owner (a Safe, say) operates the account through ERC-1271.
+    function test_aContractOwnerOperatesTheAccountViaErc1271() public {
+        MockErc1271Owner safe = new MockErc1271Owner();
+        _recoverTo(address(safe));
+
+        Eip7702RecoveryAccount.Call[] memory calls = new Eip7702RecoveryAccount.Call[](1);
+        calls[0] = Eip7702RecoveryAccount.Call({ target: address(0xCAFE), value: 0, data: "" });
+        uint48 expiry = uint48(block.timestamp + 1 hours);
+        bytes32 digest = _acc().hashExecute(calls, expiry);
+
+        vm.expectRevert(Eip7702RecoveryAccount.BadSignature.selector);
+        _acc().execute(calls, expiry, "");
+
+        safe.approve(digest);
+        _acc().execute(calls, expiry, "");
+    }
+
+    /// @dev An owner that is itself a delegated EOA has code, so ERC-1271-only checkers would skip
+    ///      its key. The account tries ECDSA first, so that owner still signs with its key.
+    function test_aDelegatedEoaOwnerStillSignsWithItsKey() public {
+        (address other, uint256 otherKey) = makeAddrAndKey("delegatedNewOwner");
+        vm.signAndAttachDelegation(address(impl), otherKey);
+        Eip7702RecoveryAccount(payable(other)).isRegistered(); // applies the delegation
+        assertGt(other.code.length, 0);
+        _recoverTo(other);
+
+        Eip7702RecoveryAccount.Call[] memory calls = new Eip7702RecoveryAccount.Call[](0);
+        uint48 expiry = uint48(block.timestamp + 1 hours);
+        bytes32 digest = _acc().hashExecute(calls, expiry);
+        _acc().execute(calls, expiry, _sign(otherKey, digest));
+    }
+}
+
+/// @dev A minimal contract owner: approves exactly the hashes it has been told to.
+contract MockErc1271Owner {
+    mapping(bytes32 hash => bool) public approved;
+
+    function approve(bytes32 hash) external {
+        approved[hash] = true;
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata) external view returns (bytes4) {
+        return approved[hash] ? bytes4(0x1626ba7e) : bytes4(0xffffffff);
     }
 }

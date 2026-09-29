@@ -48,7 +48,7 @@ contract DeployEip7702RecoveryAccount is Script {
 
         if (predicted.code.length != 0) {
             console2.log("Already deployed at the predicted address; nothing to broadcast.");
-            account = Eip7702RecoveryAccount(predicted);
+            account = Eip7702RecoveryAccount(payable(predicted));
         } else {
             require(
                 CREATE2_FACTORY.code.length != 0, "CREATE2 factory is not deployed on this chain"
@@ -141,7 +141,7 @@ contract DeployEip7702RecoveryAccount is Script {
         vm.serializeAddress(json, "recoveryAccount", account);
         vm.serializeBytes32(json, "salt", salt);
         vm.serializeBytes32(json, "initCodeHash", initCodeHash);
-        vm.serializeString(json, "version", Eip7702RecoveryAccount(account).version());
+        vm.serializeString(json, "version", Eip7702RecoveryAccount(payable(account)).version());
         string memory out = vm.serializeUint(json, "deployedAtBlock", block.number);
 
         string memory path = string.concat(dir, "/", vm.toString(block.chainid), ".json");

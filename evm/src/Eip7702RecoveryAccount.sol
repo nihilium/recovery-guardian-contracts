@@ -2,6 +2,9 @@
 pragma solidity ^0.8.25;
 
 import { ECDSA } from "solady/utils/ECDSA.sol";
+import { SignatureCheckerLib } from "solady/utils/SignatureCheckerLib.sol";
+import { ERC1271 } from "solady/accounts/ERC1271.sol";
+import { Receiver } from "solady/accounts/Receiver.sol";
 import { GradualVeto } from "./GradualVeto.sol";
 
 /**
@@ -42,8 +45,21 @@ import { GradualVeto } from "./GradualVeto.sol";
  *      `recoveryOwner` to this EOA without the EOA's own key having signed off, at registration time
  *      and at every later rotation — closing the registration front-running window a
  *      single-signature, mapping-keyed design would leave open.
+ *
+ *      **Scope: loss, not theft.** Recovery cannot revoke the EOA's own key — nothing on-chain can.
+ *      Whoever holds that key keeps protocol-level control of this address for good: it can send
+ *      transactions directly and sign a fresh 7702 authorization that points the delegation at
+ *      different code. So recovery restores control of an account whose key is *lost*; if the key
+ *      was *stolen*, the thief is not locked out. And re-delegating this EOA to any other
+ *      implementation turns recovery off (the state here stays in storage, dormant), which only the
+ *      EOA's key can do — the same key whose loss recovery exists for.
+ *
+ *      **Still an ordinary account.** Once delegated the EOA has code, so it has to behave like a
+ *      contract wallet: it accepts ETH and safe-transferred ERC-721/1155 tokens (`Receiver`) and
+ *      answers ERC-1271 (`ERC1271`, with ERC-7739 nested typed data so a post-recovery owner's
+ *      signature for one account cannot be replayed on another).
  */
-contract Eip7702RecoveryAccount {
+contract Eip7702RecoveryAccount is ERC1271, Receiver {
     using GradualVeto for GradualVeto.Config;
     using GradualVeto for GradualVeto.Attempt;
 
@@ -71,9 +87,8 @@ contract Eip7702RecoveryAccount {
 
     struct Attempt {
         bytes32 intentHash;
-        /// @dev Bumped on every `initiateRecovery`, folded into `resumeDigest` — see the Finding-C
-        ///      note there. Distinct from `epoch`/`nonce`, which only change on a *completed*
-        ///      recovery; this changes on every *attempt*, including ones later aborted.
+        /// @dev Bumped on every `initiateRecovery` *and every `pause`*, folded into `resumeDigest`,
+        ///      so a resume endorsement lifts exactly one pause. Never cleared.
         uint256 attemptSeq;
         GradualVeto.Attempt veto;
     }
@@ -87,6 +102,9 @@ contract Eip7702RecoveryAccount {
         address recoveryOwner;
         /// @dev Bumped on every completed recovery, which invalidates every prior-epoch intent.
         uint256 epoch;
+        /// @dev Bumped on every completed *and every aborted* recovery. Spending the nonce on abort
+        ///      is what makes abort final for that intent: its signature is public calldata, and
+        ///      without the bump anyone could resubmit it and reopen the attempt until it expired.
         uint256 nonce;
         /// @dev Replay protection for `register`, independent of `epoch`/`nonce`: registration and
         ///      recovery are different signed actions and must not share a counter.
@@ -129,11 +147,10 @@ contract Eip7702RecoveryAccount {
         "Execute(Call[] calls,uint256 execNonce,uint48 expiry)"
         "Call(address target,uint256 value,bytes data)"
     );
+    /// @dev The field keeps its 1.0.0 name, but since 2.0.0 `attemptSeq` also moves on every pause
+    ///      — see `Attempt.attemptSeq`.
     bytes32 private constant RESUME_TYPEHASH =
         keccak256("Resume(bytes32 intentHash,uint256 attemptSeq)");
-    bytes32 private constant DOMAIN_TYPEHASH = keccak256(
-        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
-    );
 
     event Registered(address indexed recoveryOwner, uint256 epoch);
     event RecoveryConfigUpdated(address indexed recoveryOwner, uint256 epoch);
@@ -158,6 +175,7 @@ contract Eip7702RecoveryAccount {
     error NotResumeQuorum();
     error DuplicateResumeSigner(address signer);
     error ZeroOwner();
+    error ZeroRecoveryOwner();
     error ExecutionExpired();
     error CallReverted(uint256 index, bytes returndata);
 
@@ -181,6 +199,15 @@ contract Eip7702RecoveryAccount {
      * @dev Submission is permissionless, as with initiation: the authority is in the signatures, not
      *      the sender. Re-callable by design — there is no one-way "already registered" lock, only
      *      the requirement that every call, including the first, carry the current owner's consent.
+     *
+     *      **Refused while a recovery is in flight.** Rotating the key does *not* stop an attempt the
+     *      old key already opened: `executeRecovery` checks the committed intent hash, and the
+     *      recovery key's signature was verified back at `initiateRecovery` and is never re-checked.
+     *      So a rotation performed *because* the old key was compromised would leave the attacker's
+     *      attempt running while the owner believed they had just stopped it — and the new veto
+     *      config would silently re-time it (a shorter timelock makes it executable at once; one
+     *      shorter than the time already accrued makes every veto call revert). Killing an attempt
+     *      is `abort`'s job, and it is a different authority on purpose.
      */
     function register(
         RegisterMessage calldata reg,
@@ -189,16 +216,21 @@ contract Eip7702RecoveryAccount {
     ) external {
         Layout storage l = _layout();
         if (reg.nonce != l.configNonce) revert WrongConfigNonce(l.configNonce, reg.nonce);
-        if (reg.recoveryOwner == address(0)) revert BadSignature();
+        if (reg.recoveryOwner == address(0)) revert ZeroRecoveryOwner();
+        if (
+            l.attempt.veto.state != GradualVeto.State.NONE
+                && !GradualVeto.isTerminal(l.veto.project(l.attempt.veto).state)
+        ) {
+            revert AttemptInFlight();
+        }
         GradualVeto.validate(reg.veto);
+        GradualVeto.validateRecoveryOwner(reg.veto, reg.recoveryOwner);
 
         bytes32 digest = hashRegister(reg);
         if (ECDSA.recoverCalldata(digest, recoveryOwnerSignature) != reg.recoveryOwner) {
             revert BadSignature();
         }
-        if (ECDSA.recoverCalldata(digest, ownerSignature) != _currentOwner()) {
-            revert BadSignature();
-        }
+        if (!_isOwnerSignature(digest, ownerSignature)) revert BadSignature();
 
         l.configNonce += 1;
         bool wasRegistered = l.registered;
@@ -258,12 +290,14 @@ contract Eip7702RecoveryAccount {
         emit RecoveryInitiated(intentHash, l.epoch);
     }
 
-    /// @notice INITIATED -> PAUSED, by the pause authority only.
+    /// @notice INITIATED -> PAUSED, by the pause authority only. Invalidates every resume signature
+    ///         collected so far: lifting this pause takes fresh endorsements.
     function pause() external {
         Layout storage l = _requireRegistered();
         if (msg.sender != l.veto.pauseAuthority) revert NotPauseAuthority();
         _requireAttempt(l);
         l.veto.pause(l.attempt.veto);
+        l.attempt.attemptSeq += 1;
         emit RecoveryPaused(l.attempt.intentHash);
     }
 
@@ -302,6 +336,8 @@ contract Eip7702RecoveryAccount {
         if (msg.sender != l.veto.abortAuthority) revert NotAbortAuthority();
         _requireAttempt(l);
         l.veto.abort(l.attempt.veto);
+        // Spend the aborted intent's nonce, so its public signature cannot reopen the attempt.
+        l.nonce += 1;
         emit RecoveryAborted(l.attempt.intentHash);
     }
 
@@ -337,8 +373,10 @@ contract Eip7702RecoveryAccount {
      * @notice Run a batch of calls as this EOA, authorized by the current owner's signature.
      * @dev Gated by `_currentOwner()`, so it works identically before and after a recovery: before,
      *      it's a redundant-but-harmless capability (the EOA can already transact directly with its
-     *      own live key); after, it's the *only* way to operate the account, which is the entire
-     *      point of recovery producing usable control rather than an inert stored address.
+     *      own live key); after, it's how the new owner operates the account — the only way, as
+     *      long as the original key really is lost (see "Scope" above). That is the point of
+     *      recovery producing usable control rather than an inert stored address. The owner may be
+     *      a contract (a Safe, say): its approval is checked through ERC-1271.
      *
      *      Deliberately minimal: no target/selector allowlist, no plugin system. This exists to make
      *      recovery meaningful, not to be a general smart-account framework.
@@ -352,7 +390,7 @@ contract Eip7702RecoveryAccount {
         if (block.timestamp > expiry) revert ExecutionExpired();
 
         bytes32 digest = hashExecute(calls, expiry);
-        if (ECDSA.recoverCalldata(digest, signature) != _currentOwner()) revert BadSignature();
+        if (!_isOwnerSignature(digest, signature)) revert BadSignature();
 
         uint256 execNonce = l.execNonce;
         l.execNonce = execNonce + 1;
@@ -418,21 +456,21 @@ contract Eip7702RecoveryAccount {
     }
 
     function version() external pure returns (string memory) {
-        return "1.0.0";
+        return "2.0.0";
     }
 
     function hashIntent(Intent calldata intent) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(INTENT_TYPEHASH, intent.epoch, intent.nonce, intent.newOwner, intent.expiry)
         );
-        return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        return _hashTypedData(structHash);
     }
 
     function hashRegister(RegisterMessage calldata reg) public view returns (bytes32) {
         bytes32 structHash = keccak256(
             abi.encode(REGISTER_TYPEHASH, reg.recoveryOwner, _hashVetoConfig(reg.veto), reg.nonce)
         );
-        return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        return _hashTypedData(structHash);
     }
 
     function hashExecute(Call[] calldata calls, uint48 expiry) public view returns (bytes32) {
@@ -447,22 +485,16 @@ contract Eip7702RecoveryAccount {
         bytes32 callsHash = keccak256(abi.encodePacked(callHashes));
         bytes32 structHash =
             keccak256(abi.encode(EXECUTE_TYPEHASH, callsHash, _layout().execNonce, expiry));
-        return keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        return _hashTypedData(structHash);
     }
 
-    /// @notice What a resume-quorum member signs. Bound to the attempt via `attemptSeq`, which is
-    ///         bumped on every `initiateRecovery` — so an endorsement of one attempt cannot be
-    ///         replayed onto a later attempt that happens to reuse the same intent fields (and
-    ///         hence the same `intentHash`) after an abort and reinitiate.
+    /// @notice What a resume-quorum member signs. Bound to one pause via `attemptSeq`, which is
+    ///         bumped on every `initiateRecovery` and every `pause` — so an endorsement cannot be
+    ///         replayed onto a later pause of the same attempt, nor onto a later attempt. Sign it
+    ///         after the pause it is meant to lift, reading the digest from this view.
     function resumeDigest(bytes32 intentHash) public view returns (bytes32) {
         uint256 attemptSeq = _layout().attempt.attemptSeq;
-        return keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                _domainSeparator(),
-                keccak256(abi.encode(RESUME_TYPEHASH, intentHash, attemptSeq))
-            )
-        );
+        return _hashTypedData(keccak256(abi.encode(RESUME_TYPEHASH, intentHash, attemptSeq)));
     }
 
     // ---------------------------------------------------------------------------------------
@@ -478,21 +510,67 @@ contract Eip7702RecoveryAccount {
         return o == address(0) ? address(this) : o;
     }
 
-    /// @dev Computed fresh from `address(this)` on every call — NEVER cache as an immutable set in
-    ///      the constructor. `address(this)` in the constructor is this implementation's own
-    ///      deployment address; every delegating EOA needs its *own* domain, computed at call time
-    ///      when `address(this)` is that EOA. Caching would silently verify every EOA's signatures
-    ///      against the wrong domain.
-    function _domainSeparator() internal view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH,
-                keccak256("Nihilium7702RecoveryAccount"),
-                keccak256("1.0.0"),
-                block.chainid,
-                address(this)
-            )
-        );
+    /// @dev Whether `signature` is the current owner's approval of `hash`. ECDSA first, so an owner
+    ///      that is itself a 7702-delegated EOA (which has code) still signs with its key; ERC-1271
+    ///      for a contract owner such as a Safe. Never ERC-1271 against `address(this)`: that would
+    ///      call back into this account's own `isValidSignature` and recurse. Non-reverting, since
+    ///      `isValidSignature` must answer rather than throw.
+    function _isOwnerSignature(bytes32 hash, bytes calldata signature)
+        internal
+        view
+        returns (bool)
+    {
+        address currentOwner = _currentOwner();
+        if (ECDSA.tryRecoverCalldata(hash, signature) == currentOwner) return true;
+        if (currentOwner == address(this)) return false;
+        return SignatureCheckerLib.isValidSignatureNowCalldata(currentOwner, hash, signature);
+    }
+
+    /// @dev The EIP-712 domain: `Nihilium7702RecoveryAccount` / `2.0.0`, on this chain, with this
+    ///      EOA as `verifyingContract`. Solady's `EIP712` caches the separator against the address
+    ///      that ran the constructor — this implementation's own — and rebuilds it whenever
+    ///      `address(this)` differs, which under 7702 is every call. So each delegating EOA gets its
+    ///      *own* domain, as it must: a separator cached for the implementation would verify every
+    ///      EOA's signatures against the wrong domain.
+    function _domainNameAndVersion()
+        internal
+        pure
+        override
+        returns (string memory name_, string memory version_)
+    {
+        return ("Nihilium7702RecoveryAccount", "2.0.0");
+    }
+
+    /// @dev ERC-1271 answers for whoever may currently operate this account.
+    function _erc1271Signer() internal view override returns (address) {
+        return _currentOwner();
+    }
+
+    function _erc1271IsValidSignatureNowCalldata(bytes32 hash, bytes calldata signature)
+        internal
+        view
+        override
+        returns (bool)
+    {
+        return _isOwnerSignature(hash, signature);
+    }
+
+    /// @dev Before any recovery the owner is this EOA's own key, and a plain signature over `hash`
+    ///      is exactly what that key produced before delegation — so it is accepted as-is, and
+    ///      delegating does not break the EOA's existing permits and logins. After a recovery the
+    ///      owner is a different key that may own other accounts too, so only the ERC-7739 nested
+    ///      forms (which bind this account) are accepted.
+    function _erc1271IsValidSignature(bytes32 hash, bytes calldata signature)
+        internal
+        view
+        override
+        returns (bool)
+    {
+        if (
+            _currentOwner() == address(this)
+                && ECDSA.tryRecoverCalldata(hash, signature) == address(this)
+        ) return true;
+        return super._erc1271IsValidSignature(hash, signature);
     }
 
     /// @dev The EIP-712 hash of the veto config as a nested `VetoConfig` struct, so `Register`
