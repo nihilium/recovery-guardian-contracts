@@ -103,9 +103,9 @@ pub fn intent_digest(
 
 /// What a resume-quorum member signs.
 ///
-/// Bound to the attempt via `attempt_seq`, which is bumped on every `initiate_recovery` — so an
-/// endorsement of one attempt cannot be replayed onto a later attempt that happens to reuse the
-/// same intent fields (and hence the same digest) after an abort and reinitiate. That counter lives
+/// Bound to one pause via `attempt_seq`, which is bumped on every `initiate_recovery` and every
+/// `pause` — so an endorsement cannot be replayed onto a later pause of the same attempt, nor onto
+/// a later attempt. Sign it after the pause it is meant to lift. That counter lives
 /// on the vault rather than on the attempt precisely so that clearing an attempt cannot resurrect
 /// a banked signature; `RecoveryModule` keeps it in `AccountConfig` for the same reason.
 pub fn resume_digest(

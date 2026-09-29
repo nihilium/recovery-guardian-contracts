@@ -127,6 +127,15 @@ pub mod nihilium_recovery_vault {
         // and re-enforced on every rotation: a replacement config is as capable of violating it as
         // the first one was.
         gradual_veto::validate(&veto.to_veto()).map_err(map_veto_error)?;
+        // The recovery key must hold no veto role. As pause authority or a resume member it could
+        // both open an attempt and release it; as abort authority it could silence the one party
+        // meant to stop it. Unlike the condition surface, its address is right here to check.
+        require!(
+            recovery_owner != veto.pause_authority
+                && recovery_owner != veto.abort_authority
+                && !veto.resume_members.contains(&recovery_owner),
+            RecoveryError::RecoveryOwnerHoldsVetoRole
+        );
         // Deliberately **not** checked here: whether a veto authority is also `vault.owner`.
         //
         // The natural abort authority is the account's own active key. The case abort exists for is
@@ -236,6 +245,9 @@ pub mod nihilium_recovery_vault {
             RecoveryError::NotPauseAuthority
         );
         apply(vault, gradual_veto::pause)?;
+        // Every pause moves the resume digest, so a resume endorsement lifts exactly one pause:
+        // signatures from an earlier resume are public and must not undo this one.
+        vault.attempt_seq = vault.attempt_seq.saturating_add(1);
         emit!(RecoveryPaused { vault: vault.key(), intent_digest: vault.intent_digest });
         Ok(())
     }
@@ -295,6 +307,9 @@ pub mod nihilium_recovery_vault {
             RecoveryError::NotAbortAuthority
         );
         apply(vault, gradual_veto::abort)?;
+        // Spend the aborted intent's nonce. Its signature is in a public transaction, and without
+        // this anyone could resubmit it and reopen the attempt until it expired.
+        vault.nonce = vault.nonce.saturating_add(1);
         emit!(RecoveryAborted { vault: vault.key(), intent_digest: vault.intent_digest });
         Ok(())
     }

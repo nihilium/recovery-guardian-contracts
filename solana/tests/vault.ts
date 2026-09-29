@@ -532,6 +532,31 @@ describe("nihilium-recovery-vault", () => {
                 expect(e.toString()).to.match(/PauseAndAbortHeldByOneParty/);
             }
         });
+        it("refuses a recovery key that also holds a veto role", async () => {
+            const ctx = await freshVault();
+            // Rotate to the pause authority's key as the recovery key: it could then both open an
+            // attempt and, as a veto holder, steer it.
+            const rotated = ctx.pauseAuthority;
+            const account = await program.account.vault.fetch(ctx.vault);
+            const digest = registrationDigest(
+                programId, ctx.vault, ctx.creator.publicKey, rotated.publicKey,
+                vetoFingerprint(ctx.veto), account.configNonce.toNumber(),
+            );
+            try {
+                await program.methods.register(
+                    rotated.publicKey, vetoArgOf(ctx.veto), account.configNonce, 0,
+                )
+                    .accounts({
+                        vault: ctx.vault, owner: ctx.creator.publicKey,
+                        instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+                    })
+                    .preInstructions([signAll([rotated], digest)])
+                    .signers([ctx.creator]).rpc();
+                assert.fail("a recovery key holding a veto role was accepted");
+            } catch (e: any) {
+                expect(e.toString()).to.match(/RecoveryOwnerHoldsVetoRole/);
+            }
+        });
     });
 
     describe("the recovery lifecycle", () => {
@@ -707,6 +732,79 @@ describe("nihilium-recovery-vault", () => {
                 assert.fail("executed an aborted recovery");
             } catch (e: any) {
                 expect(e.toString()).to.match(/NotExecutable/);
+            }
+        });
+
+        it("refuses a resume endorsement replayed onto a later pause of the same attempt", async () => {
+            // Once a resume lands, its signatures are public. If they stayed valid for the whole
+            // attempt, anyone could undo every later pause the moment it landed.
+            const ctx = await freshVault({ timelock: 30, ceiling: 30 });
+            const { digest } = await initiate(ctx);
+            const pause = () => program.methods.pause()
+                .accounts({ vault: ctx.vault, pauseAuthority: ctx.pauseAuthority.publicKey })
+                .signers([ctx.pauseAuthority]).rpc();
+
+            await pause();
+            let account = await program.account.vault.fetch(ctx.vault);
+            const firstDigest = resumeDigest(programId, ctx.vault, digest, account.attemptSeq.toNumber());
+            await program.methods.resume([ctx.g1.publicKey, ctx.g2.publicKey], 0)
+                .accounts({ vault: ctx.vault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
+                .preInstructions([signAll([ctx.g1, ctx.g2], firstDigest)]).rpc();
+
+            await pause();
+            try {
+                await program.methods.resume([ctx.g1.publicKey, ctx.g2.publicKey], 0)
+                    .accounts({ vault: ctx.vault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
+                    .preInstructions([signAll([ctx.g1, ctx.g2], firstDigest)]).rpc();
+                assert.fail("a banked endorsement lifted a second pause");
+            } catch (e: any) {
+                expect(e.toString()).to.match(/MessageMismatch/);
+            }
+            expect(await stateOf(ctx.vault)).to.equal(2);
+
+            // Fresh endorsements of the new pause still work.
+            account = await program.account.vault.fetch(ctx.vault);
+            const freshDigest = resumeDigest(programId, ctx.vault, digest, account.attemptSeq.toNumber());
+            await program.methods.resume([ctx.g1.publicKey, ctx.g2.publicKey], 0)
+                .accounts({ vault: ctx.vault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
+                .preInstructions([signAll([ctx.g1, ctx.g2], freshDigest)]).rpc();
+            expect(await stateOf(ctx.vault)).to.equal(1);
+        });
+
+        it("refuses to reopen an aborted intent from its public signature", async () => {
+            const ctx = await freshVault({ timelock: 30, ceiling: 30 });
+            const { arg, digest } = await initiate(ctx);
+            await program.methods.abort()
+                .accounts({ vault: ctx.vault, abortAuthority: ctx.abortAuthority.publicKey })
+                .signers([ctx.abortAuthority]).rpc();
+
+            try {
+                await program.methods.initiateRecovery(arg, 0)
+                    .accounts({ vault: ctx.vault, instructions: SYSVAR_INSTRUCTIONS_PUBKEY })
+                    .preInstructions([signAll([ctx.recoveryOwner], digest)])
+                    .rpc();
+                assert.fail("an aborted intent was reopened");
+            } catch (e: any) {
+                expect(e.toString()).to.match(/WrongNonce/);
+            }
+            expect(await stateOf(ctx.vault)).to.equal(5);
+        });
+
+        it("refuses a second pause once the attempt's pause budget is spent", async () => {
+            // The ceiling is a per-attempt budget. Per pause, the pause authority could re-pause
+            // the moment each ceiling lapsed and hold the attempt forever.
+            const ctx = await freshVault({ timelock: 30, ceiling: 2 });
+            await initiate(ctx);
+            const pause = () => program.methods.pause()
+                .accounts({ vault: ctx.vault, pauseAuthority: ctx.pauseAuthority.publicKey })
+                .signers([ctx.pauseAuthority]).rpc();
+            await pause();
+            await sleep(2);
+            try {
+                await pause();
+                assert.fail("re-paused after the budget was spent");
+            } catch (e: any) {
+                expect(e.toString()).to.match(/PauseBudgetExhausted/);
             }
         });
 

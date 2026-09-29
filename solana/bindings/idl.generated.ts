@@ -712,7 +712,7 @@ export type NihiliumRecoveryVault = {
     {
       "code": 6026,
       "name": "pauseCeilingIsZero",
-      "msg": "pauseCeilingSeconds is zero, so a pause would never auto-resume"
+      "msg": "pauseCeilingSeconds is zero, so no pause would ever be possible"
     },
     {
       "code": 6027,
@@ -743,6 +743,16 @@ export type NihiliumRecoveryVault = {
       "code": 6032,
       "name": "tooManyResumeMembers",
       "msg": "resume quorum is larger than a resume transaction can carry"
+    },
+    {
+      "code": 6033,
+      "name": "pauseBudgetExhausted",
+      "msg": "this attempt's pause budget (pauseCeilingSeconds) is spent"
+    },
+    {
+      "code": 6034,
+      "name": "recoveryOwnerHoldsVetoRole",
+      "msg": "the recovery owner cannot also hold a veto role"
     }
   ],
   "types": [
@@ -1042,12 +1052,17 @@ export type NihiliumRecoveryVault = {
           },
           {
             "name": "nonce",
+            "docs": [
+              "Bumped on every completed *and every aborted* recovery, so an aborted intent's signature",
+              "cannot reopen the attempt."
+            ],
             "type": "u64"
           },
           {
             "name": "attemptSeq",
             "docs": [
-              "Bumped on every `initiate_recovery`, folded into the resume digest."
+              "Bumped on every `initiate_recovery` *and every `pause`*, folded into the resume digest, so a",
+              "resume endorsement lifts exactly one pause."
             ],
             "type": "u64"
           },

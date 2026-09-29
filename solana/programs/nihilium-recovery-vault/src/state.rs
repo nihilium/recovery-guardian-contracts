@@ -113,8 +113,11 @@ pub struct Vault {
     pub recovery_owner: Pubkey,
     /// Bumped on every completed recovery, invalidating every prior-epoch intent.
     pub epoch: u64,
+    /// Bumped on every completed *and every aborted* recovery, so an aborted intent's signature
+    /// cannot reopen the attempt.
     pub nonce: u64,
-    /// Bumped on every `initiate_recovery`, folded into the resume digest.
+    /// Bumped on every `initiate_recovery` *and every `pause`*, folded into the resume digest, so a
+    /// resume endorsement lifts exactly one pause.
     pub attempt_seq: u64,
     /// Bumped on every `register`, folded into the registration digest.
     ///

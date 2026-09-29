@@ -1,6 +1,6 @@
 {
   "name": "@nihilium/recovery-onchain-solana",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Anchor recovery guardian and graduated-veto state machine, with the generated IDL surface the SDK consumes.",
   "license": "MIT",
   "files": [
