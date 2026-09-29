@@ -27,7 +27,9 @@ import { Eip7702RecoveryAccount } from "../src/Eip7702RecoveryAccount.sol";
  *      a deployment.
  */
 contract DeployEip7702RecoveryAccount is Script {
-    string internal constant DEFAULT_SALT = "nihilium-7702-recovery-account-v1";
+    /// @dev Bumped to v2 alongside `version() = 2.0.0`, the release fixing the 2026-09-28 audit.
+    string internal constant DEFAULT_SALT = "nihilium-7702-recovery-account-v2";
+    string internal constant EXPECTED_VERSION = "2.0.0";
 
     uint256 internal constant CHAIN_SEPOLIA = 11_155_111;
     uint256 internal constant CHAIN_ARBITRUM_SEPOLIA = 421_614;
@@ -37,7 +39,7 @@ contract DeployEip7702RecoveryAccount is Script {
     function run() external returns (Eip7702RecoveryAccount account) {
         _guardChain();
 
-        bytes32 salt = keccak256(bytes(_envOr("DEPLOY_SALT", DEFAULT_SALT)));
+        bytes32 salt = keccak256(bytes(_envOr("RECOVERY_ACCOUNT_SALT", DEFAULT_SALT)));
         bytes32 initCodeHash = keccak256(type(Eip7702RecoveryAccount).creationCode);
         address predicted = vm.computeCreate2Address(salt, initCodeHash, CREATE2_FACTORY);
 
@@ -112,16 +114,18 @@ contract DeployEip7702RecoveryAccount is Script {
             keccak256(bytes(account.name())) == keccak256("Nihilium7702RecoveryAccount"),
             "unexpected name"
         );
-        require(keccak256(bytes(account.version())) == keccak256("1.0.0"), "unexpected version");
+        require(
+            keccak256(bytes(account.version())) == keccak256(bytes(EXPECTED_VERSION)),
+            "unexpected version"
+        );
         require(!account.isRegistered(), "unexpected pre-existing state");
     }
 
     /**
-     * @dev Written under its own subdirectory, distinct from `deployments/<chainid>.json`
-     *      (`DeployRecoveryModule.s.sol`'s path) — this is a different contract, not a new version
-     *      of `RecoveryModule`, and the two must never share a file: both scripts use a 2-argument
-     *      `vm.writeJson` that overwrites the whole file rather than merging keys, so sharing a path
-     *      would silently destroy whichever record was written first.
+     * @dev Records the deployment under
+     *      `deployments/eip7702-recovery-account/<version>/<chainid>.json` — its own tree, apart from
+     *      `RecoveryModule`'s, because it is a different contract rather than a new version of the
+     *      module, and versioned so a new release can never overwrite an older one's record.
      */
     function _writeDeployment(address account, bytes32 salt, bytes32 initCodeHash) internal {
         if (!vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)) {
@@ -133,7 +137,10 @@ contract DeployEip7702RecoveryAccount is Script {
             return;
         }
 
-        string memory dir = "deployments/eip7702-recovery-account";
+        string memory dir = string.concat(
+            "deployments/eip7702-recovery-account/",
+            Eip7702RecoveryAccount(payable(account)).version()
+        );
         if (!vm.exists(dir)) vm.createDir(dir, true);
 
         string memory json = "deployment";

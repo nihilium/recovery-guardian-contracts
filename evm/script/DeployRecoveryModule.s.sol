@@ -33,19 +33,17 @@ import { RecoveryModule } from "../src/RecoveryModule.sol";
 contract DeployRecoveryModule is Script {
     /// @dev Human-readable so the salt is auditable; hashed to bytes32 below.
     /**
-     * @dev Bumped to v3 alongside `version() = 3.0.0`: the EIP-712 `Resume` struct gained an
-     *      `attemptSeq` field bound to a per-account counter, so a resume signature can no longer
-     *      be replayed against a later attempt on the same account. The domain version moved with
-     *      it, which invalidates every v2 resume signature by construction.
-     *
-     *      v2 did the same for the veto clock, which moved from block heights to wall-clock
-     *      seconds, changing both `GradualVeto.Config` and the `onInstall` encoding.
+     * @dev Bumped to v4 alongside `version() = 4.0.0`, the release fixing the 2026-09-28 audit:
+     *      resume endorsements lift one pause only, abort spends the intent's nonce, and the pause
+     *      ceiling is a per-attempt budget. v3 bound resumes to the attempt; v2 moved the veto clock
+     *      from block heights to wall-clock seconds.
      *
      *      A changed initcode already yields a changed address, so the salt is not what separates
-     *      the deployments — but leaving a version-tagged salt reading `v2` while shipping a
-     *      breaking v3 would make the address derivation lie about what it is.
+     *      the deployments — but a version-tagged salt reading an older version would make the
+     *      address derivation lie about what it is.
      */
-    string internal constant DEFAULT_SALT = "nihilium-recovery-module-v3";
+    string internal constant DEFAULT_SALT = "nihilium-recovery-module-v4";
+    string internal constant EXPECTED_VERSION = "4.0.0";
 
     uint256 internal constant CHAIN_SEPOLIA = 11_155_111;
     uint256 internal constant CHAIN_ARBITRUM_SEPOLIA = 421_614;
@@ -57,7 +55,7 @@ contract DeployRecoveryModule is Script {
     function run() external returns (RecoveryModule module) {
         _guardChain();
 
-        bytes32 salt = keccak256(bytes(_envOr("DEPLOY_SALT", DEFAULT_SALT)));
+        bytes32 salt = keccak256(bytes(_envOr("RECOVERY_MODULE_SALT", DEFAULT_SALT)));
         bytes32 initCodeHash = keccak256(type(RecoveryModule).creationCode);
         address predicted = vm.computeCreate2Address(salt, initCodeHash, CREATE2_FACTORY);
 
@@ -157,11 +155,17 @@ contract DeployRecoveryModule is Script {
             keccak256(bytes(module.name())) == keccak256("NihiliumRecoveryModule"),
             "unexpected name"
         );
+        require(
+            keccak256(bytes(module.version())) == keccak256(bytes(EXPECTED_VERSION)),
+            "unexpected version"
+        );
         require(!module.isInitialized(address(0)), "unexpected pre-existing state");
     }
 
     /**
-     * @dev Records the deployment under `deployments/<chainid>.json`. Only written on a real
+     * @dev Records the deployment under `deployments/recovery-module/<version>/<chainid>.json`.
+     *      Versioned so a new release can never overwrite an older one's record: every version
+     *      stays on-chain for good, so its record has to as well. Only written on a real
      *      broadcast: a dry run that left a file behind would be indistinguishable from a
      *      deployment that actually happened.
      *
@@ -182,7 +186,8 @@ contract DeployRecoveryModule is Script {
             return;
         }
 
-        string memory dir = "deployments";
+        string memory dir =
+            string.concat("deployments/recovery-module/", RecoveryModule(module).version());
         if (!vm.exists(dir)) vm.createDir(dir, true);
 
         string memory json = "deployment";

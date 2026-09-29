@@ -22,6 +22,14 @@ fs_permissions = [
     { access = "read-write", path = "./deployments" },
 ]
 
+# Real-account integration tests (`npm run test:accounts`), run once per ModuleKit ACCOUNT_TYPE.
+# Kept out of the default profile because they import ModuleKit's test harness, which Foundry's
+# linter cannot parse (it cannot resolve a bare `src/…` import inside ModuleKit's own sources, which
+# solc resolves fine). Linting stays on for everything in the default profile.
+[profile.integration]
+test = "integration"
+lint_on_build = false
+
 # The graduated veto is a security state machine; a fuzz run that only samples a handful of inputs
 # is not evidence about it. These are raised well above the defaults on purpose.
 [fuzz]

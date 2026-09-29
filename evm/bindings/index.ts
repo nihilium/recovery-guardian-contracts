@@ -110,6 +110,101 @@ export const legacyRecoveryModuleAddresses: Record<string, Record<number, string
     },
 };
 
+/** A security finding that affects a deployed version. Ids refer to the 2026-09-28 audit. */
+export interface KnownIssue {
+    readonly id: string;
+    readonly severity: "high" | "medium" | "low";
+    readonly summary: string;
+}
+
+const RESUME_REPLAY_ACROSS_PAUSES: KnownIssue = {
+    id: "H-1",
+    severity: "high",
+    summary:
+        "Resume signatures stay valid for the whole attempt: once one resume lands, anyone can " +
+        "replay it to undo every later pause immediately, leaving only abort.",
+};
+const RESUME_REPLAY_ACROSS_ATTEMPTS: KnownIssue = {
+    id: "H-2",
+    severity: "high",
+    summary:
+        "Resume signatures are not bound to the attempt: an endorsement also lifts a pause on a " +
+        "later attempt with the same intent, including after uninstall and reinstall.",
+};
+const ABORTED_INTENT_REOPENABLE: KnownIssue = {
+    id: "M-1",
+    severity: "medium",
+    summary:
+        "Abort does not spend the nonce: anyone can resubmit an aborted intent's public " +
+        "signature and reopen the attempt until it expires.",
+};
+const UNBOUNDED_PAUSE: KnownIssue = {
+    id: "M-2",
+    severity: "medium",
+    summary:
+        "pauseCeilingSeconds bounds each pause, not the total: the pause authority can re-pause " +
+        "after every ceiling and hold an attempt indefinitely unless the resume quorum acts.",
+};
+const RECOVERY_OWNER_MAY_HOLD_VETO_ROLE: KnownIssue = {
+    id: "L-3",
+    severity: "low",
+    summary: "The recovery key is not checked against the veto roles, so it may also hold one.",
+};
+
+/**
+ * Known issues per `RecoveryModule` version. A version absent from this table, or mapped to an
+ * empty list, has none known. Anything reading an account's installed module should check this and
+ * prompt a migration: there is no upgrade path, so a fix only reaches an account that installs the
+ * fixed version.
+ *
+ * v1.0.0 differs from v2.0.0 only in its clock unit (block heights) and was not separately
+ * re-audited; it is listed with v2's issues because it shares the same resume and abort logic.
+ */
+export const recoveryModuleKnownIssues: Record<string, readonly KnownIssue[]> = {
+    "1.0.0": [
+        RESUME_REPLAY_ACROSS_PAUSES, RESUME_REPLAY_ACROSS_ATTEMPTS, ABORTED_INTENT_REOPENABLE,
+        UNBOUNDED_PAUSE, RECOVERY_OWNER_MAY_HOLD_VETO_ROLE,
+    ],
+    "2.0.0": [
+        RESUME_REPLAY_ACROSS_PAUSES, RESUME_REPLAY_ACROSS_ATTEMPTS, ABORTED_INTENT_REOPENABLE,
+        UNBOUNDED_PAUSE, RECOVERY_OWNER_MAY_HOLD_VETO_ROLE,
+    ],
+    "3.0.0": [
+        RESUME_REPLAY_ACROSS_PAUSES, ABORTED_INTENT_REOPENABLE, UNBOUNDED_PAUSE,
+        RECOVERY_OWNER_MAY_HOLD_VETO_ROLE,
+    ],
+    "4.0.0": [],
+};
+
+/** Known issues per `Eip7702RecoveryAccount` version; see `recoveryModuleKnownIssues`. */
+export const eip7702AccountKnownIssues: Record<string, readonly KnownIssue[]> = {
+    "1.0.0": [
+        RESUME_REPLAY_ACROSS_PAUSES, ABORTED_INTENT_REOPENABLE, UNBOUNDED_PAUSE,
+        {
+            id: "M-3",
+            severity: "medium",
+            summary:
+                "register() does not cancel an in-flight attempt: rotating away a compromised " +
+                "recovery key leaves that key's attempt running, and the new veto config re-times " +
+                "it (it can become executable at once, or make abort revert).",
+        },
+        {
+            id: "M-4",
+            severity: "medium",
+            summary:
+                "The delegated EOA rejects plain ETH transfers and safe ERC-721/1155 transfers, " +
+                "and implements no ERC-1271.",
+        },
+        {
+            id: "L-2",
+            severity: "low",
+            summary: "A contract newOwner (a Safe, say) can never sign, so it cannot operate the account.",
+        },
+        RECOVERY_OWNER_MAY_HOLD_VETO_ROLE,
+    ],
+    "2.0.0": [],
+};
+
 export function recoveryModuleVersion(chainId: number): string {
     const version = recoveryModuleVersions[chainId];
     if (!version) {
