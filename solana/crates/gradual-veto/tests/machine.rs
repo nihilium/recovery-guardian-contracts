@@ -200,7 +200,45 @@ fn a_pause_auto_resumes_at_the_ceiling_with_nobody_acting() {
     // At the ceiling: initiated again, no signature, no transaction.
     let released = project(&config, attempt, T0 + CEILING as i64);
     assert_eq!(released.state, State::Initiated);
-    assert_eq!(released.paused_seconds, 0);
+    // The budget stays spent: auto-resume does not refill it.
+    assert_eq!(released.paused_seconds, CEILING);
+}
+
+/// The ceiling is a per-attempt budget, not a per-pause one. Otherwise the pause authority could
+/// re-pause the instant each ceiling lapsed, and the attempt would accrue only the seconds between
+/// pauses — forever.
+#[test]
+fn a_pause_authority_cannot_re_pause_after_the_budget_is_spent() {
+    let config = config();
+    let mut attempt = initiated();
+    pause(&config, &mut attempt, T0).unwrap();
+
+    let after_ceiling = T0 + CEILING as i64;
+    assert_eq!(
+        pause(&config, &mut attempt, after_ceiling),
+        Err(VetoError::PauseBudgetExhausted)
+    );
+    // The failed pause settled the clock; the attempt still matures on schedule.
+    let matured = project(&config, attempt, after_ceiling + TIMELOCK as i64);
+    assert_eq!(matured.state, State::Executable);
+}
+
+#[test]
+fn spent_pause_time_carries_across_a_resume() {
+    let config = config();
+    let mut attempt = initiated();
+    pause(&config, &mut attempt, T0).unwrap();
+    resume(&config, &mut attempt, T0 + 30).unwrap();
+    assert_eq!(attempt.paused_seconds, 30);
+
+    // Only CEILING - 30 seconds of budget remain for the second pause.
+    pause(&config, &mut attempt, T0 + 30).unwrap();
+    let remaining = CEILING - 30;
+    let held = project(&config, attempt, T0 + 30 + remaining as i64 - 1);
+    assert_eq!(held.state, State::Paused);
+    let released = project(&config, attempt, T0 + 30 + remaining as i64);
+    assert_eq!(released.state, State::Initiated);
+    assert_eq!(released.paused_seconds, CEILING);
 }
 
 /// "The clock stopped, it did not reset." A pause that reset accrual would let a pause-holder

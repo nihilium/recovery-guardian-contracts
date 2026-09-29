@@ -574,6 +574,7 @@ fn map_veto_error(error: gradual_veto::VetoError) -> Error {
         V::NotPaused => RecoveryError::NotPaused.into(),
         V::NotExecutable => RecoveryError::NotExecutable.into(),
         V::AlreadyTerminal => RecoveryError::AlreadyTerminal.into(),
+        V::PauseBudgetExhausted => RecoveryError::PauseBudgetExhausted.into(),
         V::PauseAuthorityIsZero => RecoveryError::PauseAuthorityIsZero.into(),
         V::AbortAuthorityIsZero => RecoveryError::AbortAuthorityIsZero.into(),
         V::ResumeQuorumIsEmpty => RecoveryError::ResumeQuorumIsEmpty.into(),
@@ -644,7 +645,7 @@ pub enum RecoveryError {
     ResumeThresholdExceedsMembership,
     #[msg("timelockSeconds is zero")]
     TimelockIsZero,
-    #[msg("pauseCeilingSeconds is zero, so a pause would never auto-resume")]
+    #[msg("pauseCeilingSeconds is zero, so no pause would ever be possible")]
     PauseCeilingIsZero,
     #[msg("pause and abort held by one party")]
     PauseAndAbortHeldByOneParty,
@@ -658,4 +659,9 @@ pub enum RecoveryError {
     ResumeQuorumContainsDuplicate,
     #[msg("resume quorum is larger than a resume transaction can carry")]
     TooManyResumeMembers,
+    // Appended, never inserted: Anchor numbers error codes by position, and clients match on them.
+    #[msg("this attempt's pause budget (pauseCeilingSeconds) is spent")]
+    PauseBudgetExhausted,
+    #[msg("the recovery owner cannot also hold a veto role")]
+    RecoveryOwnerHoldsVetoRole,
 }

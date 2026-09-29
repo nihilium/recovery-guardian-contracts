@@ -100,7 +100,10 @@ pub struct Attempt {
     pub state: State,
     /// Seconds accrued toward `timelock_seconds`, as of `checkpoint_time`.
     pub accrued_seconds: u64,
-    /// Seconds spent in the current pause, as of `checkpoint_time`.
+    /// Seconds spent paused over this whole attempt, across every pause, as of `checkpoint_time`.
+    /// Never reset by a resume or an auto-resume — only by [`start`] — so `pause_ceiling_seconds`
+    /// bounds the pause authority's *total* freeze. A per-pause bound would let it re-pause the
+    /// moment each ceiling lapsed and hold the attempt indefinitely.
     pub paused_seconds: u64,
     /// The unix second `accrued_seconds` / `paused_seconds` were last brought up to date at.
     pub checkpoint_time: i64,
@@ -119,6 +122,7 @@ pub enum VetoError {
     NotPaused,
     NotExecutable,
     AlreadyTerminal,
+    PauseBudgetExhausted,
     PauseAuthorityIsZero,
     AbortAuthorityIsZero,
     ResumeQuorumIsEmpty,
@@ -178,11 +182,12 @@ pub fn project(config: &Config, mut attempt: Attempt, now: i64) -> Attempt {
                     attempt.paused_seconds = attempt.paused_seconds.saturating_add(remaining);
                     return attempt;
                 }
-                // Ceiling reached: auto-resume, with no resume signature involved (§15). The
-                // remaining seconds then accrue toward the timelock below, so one long advance
-                // behaves the same as many short ones.
+                // Budget spent: auto-resume, with no resume signature involved (§15). It stays
+                // spent, so this attempt cannot be paused again. The remaining seconds then accrue
+                // toward the timelock below, so one long advance behaves the same as many short
+                // ones.
                 attempt.state = State::Initiated;
-                attempt.paused_seconds = 0;
+                attempt.paused_seconds = config.pause_ceiling_seconds;
                 remaining = remaining.saturating_sub(until_ceiling);
             }
             State::Initiated => {
@@ -218,7 +223,8 @@ pub fn start(attempt: &mut Attempt, now: i64) {
 }
 
 /// `Initiated` -> `Paused`. Deliberately **not** legal from `Executable`: once the timelock has
-/// matured the window for slowing things down has closed, and only abort remains (§15).
+/// matured the window for slowing things down has closed, and only abort remains (§15). Also not
+/// legal once the attempt's pause budget (`pause_ceiling_seconds`) is spent.
 pub fn pause(config: &Config, attempt: &mut Attempt, now: i64) -> Result<(), VetoError> {
     settle(config, attempt, now);
     // Terminality is reported separately from "wrong state": "this recovery is already over" is an
@@ -230,12 +236,15 @@ pub fn pause(config: &Config, attempt: &mut Attempt, now: i64) -> Result<(), Vet
     if attempt.state != State::Initiated {
         return Err(VetoError::NotInitiated);
     }
+    if attempt.paused_seconds >= config.pause_ceiling_seconds {
+        return Err(VetoError::PauseBudgetExhausted);
+    }
     attempt.state = State::Paused;
-    attempt.paused_seconds = 0;
     Ok(())
 }
 
 /// `Paused` -> `Initiated`. The accrued timelock is preserved: the clock stopped, it did not reset.
+/// The pause budget spent so far stays spent.
 pub fn resume(config: &Config, attempt: &mut Attempt, now: i64) -> Result<(), VetoError> {
     settle(config, attempt, now);
     if is_terminal(attempt.state) {
@@ -245,7 +254,6 @@ pub fn resume(config: &Config, attempt: &mut Attempt, now: i64) -> Result<(), Ve
         return Err(VetoError::NotPaused);
     }
     attempt.state = State::Initiated;
-    attempt.paused_seconds = 0;
     Ok(())
 }
 
@@ -307,8 +315,9 @@ pub fn validate(config: &Config) -> Result<(), VetoError> {
     if config.timelock_seconds == 0 {
         return Err(VetoError::TimelockIsZero);
     }
-    // Without a positive ceiling a pause never auto-resumes, and the pause-holder's bounded
-    // "freeze" becomes an unbounded one.
+    // A zero budget would make every pause fail, silently removing the pause authority. The
+    // budget is cumulative per attempt (see `Attempt::paused_seconds`), which is what keeps the
+    // pause-holder's freeze bounded.
     if config.pause_ceiling_seconds == 0 {
         return Err(VetoError::PauseCeilingIsZero);
     }
