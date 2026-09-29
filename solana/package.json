@@ -1,0 +1,59 @@
+{
+  "name": "@nihilium/recovery-onchain-solana",
+  "version": "0.7.2",
+  "description": "Anchor recovery guardian and graduated-veto state machine, with the generated IDL surface the SDK consumes.",
+  "license": "MIT",
+  "files": [
+    "Anchor.toml",
+    "Cargo.lock",
+    "Cargo.toml",
+    "README.md",
+    "bindings",
+    "crates",
+    "deployments",
+    "dist",
+    "programs",
+    "tests/fixtures"
+  ],
+  "scripts": {
+    "build": "npm run build:program && npm run build:idl && npm run build:bindings",
+    "build:program": "anchor build --no-idl -- --tools-version v1.53",
+    "build:idl": "anchor idl build -o bindings/idl.generated.json -t bindings/idl.generated.ts",
+    "test": "npm run test:veto && npm run test:program",
+    "test:veto": "cargo test",
+    "test:program": "npm run build:program && anchor test --skip-build",
+    "lint": "cargo clippy --all-targets -- -D warnings",
+    "fmt": "cargo fmt --all",
+    "fmt:check": "cargo fmt --all -- --check",
+    "clean": "cargo clean",
+    "smoke:devnet": "ts-node scripts/devnet-smoke.ts",
+    "build:devnet": "anchor build --no-idl -- --tools-version v1.53 --no-default-features --features devnet",
+    "build:mainnet": "anchor build --no-idl -- --tools-version v1.53 --no-default-features --features mainnet",
+    "deploy:devnet": "solana program deploy target/deploy/nihilium_recovery_vault.so --program-id target/deploy/nihilium_recovery_vault-keypair.json -u devnet",
+    "build:bindings": "tsc -p tsconfig.bindings.json"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@types/bn.js": "^5.2.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^26.6.1",
+    "chai": "^4.3.4",
+    "mocha": "^10.2.0",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.6.1",
+    "@solana/web3.js": "^1.98.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}

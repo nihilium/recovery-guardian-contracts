@@ -1,0 +1,17 @@
+[package]
+name = "nihilium-recovery-common"
+version = "0.7.2"
+edition = "2021"
+license = "MIT"
+description = "Digest derivation and ed25519 introspection shared by the Nihilium recovery programs."
+
+[features]
+default = ["localnet"]
+localnet = []
+devnet = []
+mainnet = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
+gradual-veto = { path = "../gradual-veto" }

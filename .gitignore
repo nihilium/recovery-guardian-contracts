@@ -1,7 +1,15 @@
+# evm/ (Foundry)
 out/
 cache/
 broadcast/
 lib/
+
+# solana/ (Anchor + Cargo). Cargo.lock is deliberately NOT ignored: a verified reproducible build
+# needs the exact dependency graph, which is the substitute for EVM's CREATE2 address determinism.
+target/
+.anchor/
+test-ledger/
+
 node_modules/
 dist/
 *.tsbuildinfo
